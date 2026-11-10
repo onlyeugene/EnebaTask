@@ -15,6 +15,7 @@ import (
 	"eugene/internal/home"
 	"eugene/internal/home/blocks"
 	"eugene/internal/keys"
+	"eugene/internal/orders"
 	"eugene/internal/platform/config"
 	"eugene/internal/platform/db"
 	"eugene/internal/products"
@@ -62,9 +63,12 @@ func main() {
 
 	keyRepo := keys.NewMongoRepo(database)
 	searchSvc := search.NewService(search.NewMongoRepo(database))
-	productsSvc := products.NewService(products.NewMongoRepo(database), keyRepo, time.Now)
+	productsRepo := products.NewMongoRepo(database)
+	productsSvc := products.NewService(productsRepo, keyRepo, time.Now)
 	homeSvc := home.NewService(home.NewMongoRepo(database), blocks.Registry(productsSvc))
-	cartSvc := cart.NewService(cart.NewMongoRepo(database), keyRepo, time.Now)
+	cartRepo := cart.NewMongoRepo(database)
+	cartSvc := cart.NewService(cartRepo, keyRepo, time.Now)
+	ordersSvc := orders.NewService(orders.NewMongoRepo(database), keyRepo, productsRepo, cartRepo, cfg.ReservationTTL, time.Now)
 	authHandler := auth.NewHandler(authSvc)
 	h := handlers{
 		auth:     authHandler,
@@ -72,7 +76,11 @@ func main() {
 		search:   search.NewHandler(searchSvc),
 		home:     home.NewHandler(homeSvc, cfg.IsDev()),
 		cart:     cart.NewHandler(cartSvc, authHandler.RequireAuth),
+		orders:   orders.NewHandler(ordersSvc, authHandler.RequireAuth),
 	}
+
+	// Tidy-up only: expires abandoned orders and recounts their stock. Stops with ctx on shutdown.
+	go ordersSvc.RunCleanup(ctx, time.Minute)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

@@ -107,3 +107,16 @@ func (r *MongoRepo) Offers(ctx context.Context, offerIDs []bson.ObjectID) (map[b
 	}
 	return out, nil
 }
+
+// RemoveOffers drops these offers' lines from the user's cart. Orders calls it inside the pay
+// transaction, so only what was just bought leaves the cart; a line added after checkout started stays.
+func (r *MongoRepo) RemoveOffers(ctx context.Context, userID bson.ObjectID, offerIDs []bson.ObjectID, now time.Time) error {
+	_, err := r.carts.UpdateOne(ctx, bson.M{"userId": userID}, bson.M{
+		"$pull": bson.M{"items": bson.M{"offerId": bson.M{"$in": offerIDs}}},
+		"$set":  bson.M{"updatedAt": now},
+	})
+	if err != nil {
+		return fmt.Errorf("remove paid lines from cart: %w", err)
+	}
+	return nil
+}

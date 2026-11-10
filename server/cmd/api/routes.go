@@ -12,6 +12,7 @@ import (
 	"eugene/internal/auth"
 	"eugene/internal/cart"
 	"eugene/internal/home"
+	"eugene/internal/orders"
 	"eugene/internal/platform/config"
 	"eugene/internal/platform/db"
 	"eugene/internal/platform/httpx"
@@ -27,6 +28,7 @@ type handlers struct {
 	search   *search.Handler
 	home     *home.Handler
 	cart     *cart.Handler
+	orders   *orders.Handler
 }
 
 func newRouter(cfg config.Config, database *mongo.Database, h handlers) http.Handler {
@@ -57,6 +59,7 @@ func newRouter(cfg config.Config, database *mongo.Database, h handlers) http.Han
 		api.Mount("/search", h.search.Routes())
 		api.Mount("/homepage", h.home.Routes())
 		api.Mount("/cart", h.cart.Routes())
+		api.Mount("/orders", h.orders.Routes())
 	})
 
 	return r

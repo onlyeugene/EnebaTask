@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -200,4 +201,58 @@ func (r *MongoRepo) Offers(ctx context.Context, productID bson.ObjectID) ([]Offe
 		return nil, fmt.Errorf("decode offers: %w", err)
 	}
 	return out, nil
+}
+
+// ---- Stock writes, used by the orders transactions (PLAN.md section 5) ----
+
+// StockInputs returns a product and all its offers (active or not) for a stock recount.
+// It does not filter on active: a purchase can still finish on a product taken down meanwhile.
+func (r *MongoRepo) StockInputs(ctx context.Context, productID bson.ObjectID) (Product, []Offer, error) {
+	var p Product
+	err := r.products.FindOne(ctx, bson.M{"_id": productID}, options.FindOne().SetProjection(noCover)).Decode(&p)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return Product{}, nil, ErrNotFound
+	}
+	if err != nil {
+		return Product{}, nil, fmt.Errorf("find product %s: %w", productID.Hex(), err)
+	}
+	cur, err := r.offers.Find(ctx, bson.M{"productId": productID})
+	if err != nil {
+		return Product{}, nil, fmt.Errorf("find offers: %w", err)
+	}
+	var offers []Offer
+	if err := cur.All(ctx, &offers); err != nil {
+		return Product{}, nil, fmt.Errorf("decode offers: %w", err)
+	}
+	return p, offers, nil
+}
+
+// SaveStock writes each offer's stock and the product's price summary, as set by the caller
+// (live key counts + Summarize). A product has 2–4 offers, so one update per offer is fine.
+func (r *MongoRepo) SaveStock(ctx context.Context, p Product, offers []Offer, now time.Time) error {
+	for _, o := range offers {
+		_, err := r.offers.UpdateOne(ctx, bson.M{"_id": o.ID}, bson.M{"$set": bson.M{"stock": o.Stock, "updatedAt": now}})
+		if err != nil {
+			return fmt.Errorf("save offer stock: %w", err)
+		}
+	}
+	_, err := r.products.UpdateOne(ctx, bson.M{"_id": p.ID}, bson.M{"$set": bson.M{
+		"minPriceCents": p.MinPriceCents, "discountPct": p.DiscountPct,
+		"offerCount": p.OfferCount, "inStock": p.InStock, "updatedAt": now,
+	}})
+	if err != nil {
+		return fmt.Errorf("save product summary: %w", err)
+	}
+	return nil
+}
+
+// AddSold raises soldCount, which drives the best sellers rail and sort.
+// $inc is safe here, unlike for stock: it only runs in a paid order's transaction and nothing
+// ever undoes a sale, so it can't drift.
+func (r *MongoRepo) AddSold(ctx context.Context, productID bson.ObjectID, qty int) error {
+	_, err := r.products.UpdateOne(ctx, bson.M{"_id": productID}, bson.M{"$inc": bson.M{"soldCount": qty}})
+	if err != nil {
+		return fmt.Errorf("add sold count: %w", err)
+	}
+	return nil
 }
