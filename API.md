@@ -197,9 +197,21 @@ Guests keep the cart in the browser (Zustand). Signed-in users have a server car
 Merge rules (lines are keyed by `offerId`; full reasoning in PLAN.md section 5b):
 - Same offer in both carts → the **larger** quantity, not the sum. Running the merge twice gives the same cart.
 - Same product from a different seller → separate line.
-- Capped at 10 and at live stock. Offers that are gone or inactive go in `dropped`.
+- Capped at 10 and at live stock. Server lines not in the guest cart are kept as they are.
+- Guest lines left out go in `dropped` with a `reason`: `OFFER_GONE` (offer or product inactive or deleted), `OUT_OF_STOCK` (no keys left), `CART_FULL` (cart already has 20 lines).
 
-Cart responses always use live prices and stock, never stored ones. A line that can't be bought carries `problem` and checkout is blocked until it's fixed.
+Cart responses always use live prices and stock, never stored ones. A line that can't be bought carries `problem` and checkout is blocked until it's fixed:
+- `OFFER_GONE`: the offer or its product is inactive or deleted. Only `offerId`, `quantity` and `problem` are filled; the other fields are empty strings and zeros.
+- `OUT_OF_STOCK`: `available` is 0.
+- `NOT_ENOUGH_STOCK`: `quantity` is above `available`.
+
+Totals: `itemCount` is the sum of all quantities (header badge). `totalCents` and `cashbackCents` are the sums of the lines' `lineTotalCents` and `cashbackCents`; `OFFER_GONE` lines add 0. Line cashback is `lineTotalCents × cashbackPct / 100`, rounded down.
+
+Rules and errors:
+- At most 20 lines. `quote` and `merge` bodies take at most 20 items, each with a valid `offerId`, `quantity` 1–10 and no offer listed twice; otherwise `422 VALIDATION_FAILED` with `fields` such as `{ "items[0].quantity": "must be between 1 and 10" }`.
+- `PUT` sets the quantity (it does not add to it). `quantity` outside 1–10 → `422`. An offer that is gone, inactive or not a valid id → `404 NOT_FOUND`. A new line when the cart already has 20 → `422`. `PUT` does not cap at stock: the user chose the number, so the line shows `NOT_ENOUGH_STOCK` instead.
+- `DELETE` of an offer that isn't in the cart still returns `200` with the cart. Not a valid id → `404`.
+- Every write runs in a transaction (read, change, save), so two tabs writing at once never lose each other's lines.
 
 ## Orders and payment
 

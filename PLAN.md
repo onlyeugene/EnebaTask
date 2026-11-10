@@ -464,8 +464,8 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  └─ routes.go             # Routes(): /, /blocks/{id} → mounted at /api/homepage
 │  │  │
 │  │  ├─ cart/
-│  │  │  ├─ model.go              # Cart, CartLine
-│  │  │  ├─ repository.go         # CartRepo interface
+│  │  │  ├─ model.go              # Cart, Item (stored); View, Line (API's Cart, CartLine)
+│  │  │  ├─ repository.go         # Repository (carts + offer lookup), StockCounter
 │  │  │  ├─ repository_mongo.go
 │  │  │  ├─ service.go            # Quote, Get, Upsert, Remove, Merge — no Mongo calls here
 │  │  │  ├─ service_test.go       # merge rules: same offer max qty, idempotent, capped
@@ -729,7 +729,7 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | 5 ✅ | Auth part 1: users, register/login, JWT, middleware, `/me`, rate limit + tests for expired/revoked | `go test ./internal/auth/...` green; curl register → me |
 | 6 ✅ | Auth part 2: refresh rotation, reuse detection, logout, TTL indexes + tests | Tests for rotation and reuse green |
 | 7 ✅ | Homepage: layout endpoint, registry, 6 block services, `?fail=1` | Each block id returns data; `?fail=1` returns 503 |
-| 8 | Cart API: quote, get, put, delete, merge | curl flow: merge → put → get shows live prices |
+| 8 ✅ | Cart API: quote, get, put, delete, merge | curl flow: merge → put → get shows live prices |
 | 9 | Orders: reserve transaction with expiry-aware claim, simulated pay, cleanup job, list/detail, `claim_integration_test.go` | `go test ./internal/orders/...` green (unit only); `go test -tags integration ./internal/orders/...` → all 4 integration tests green; decline puts stock back and recounts immediately |
 | 10 | Client skeleton: create-next-app (it refuses a folder with unknown files, so move `client/.env.example` aside and put it back after), Tailwind tokens, Metropolis font, `(shop)` layout with Header/Footer (server), Providers, `apiFetch` with single-flight refresh | Page renders with Eneba header and footer; demo disclaimer in footer |
 | 11 | Homepage client: `HomeBlocks`, hero, category row, product rails, `ProductCard` | Home matches screenshots; `?fail=<id>` breaks only one block |
@@ -772,6 +772,11 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Homepage rails | One `Rail` service, registered four times with a different sort, type filter and "see all" link, instead of four near-identical files. It calls `products.Service.List`, so a rail shows the same cards in the same order as the store page its link opens. The deals minimum (20%) is applied after the query: the rail sorts by discount, highest first, so dropping the tail equals filtering in the query, and `ListQuery` needs no field the store never uses. |
 | Category counts | Taken from `products.Service.Filters` (one aggregation, in-stock only), so a tile's count matches what the store shows after the click. Each tile also gets an `href` built on the server from the block config, so the client never maps a category to a store filter itself. |
 | Block errors | Bad or unknown block id → `404`. Any other failure (db error, timeout, bad config, type with no service) → `503 BLOCK_UNAVAILABLE`, logged with the block id. |
+| Cart writes | Every write (put, delete, merge) goes through one `Repository.Update(userID, change)`: read the cart, run `change` in Go, save, inside one transaction. If another write changed the cart in between, Mongo raises a write conflict and the driver runs it again on the fresh cart. The service never touches Mongo, and the in-memory test repo does the same with a lock. Offers and stock are read before the transaction, so `change` only edits the cart it is given and gives the same result on retry. The first cart for a user is safe too: if two writes both try to insert it, Mongo reports the second as a `WriteConflict` (not a duplicate key on the unique `userId` index), so it is retried like any other clash. No extra duplicate-key handling, because it never fires; `cart/repository_mongo_integration_test.go` forces the worst order (other writer commits between our read and our write) and runs 20 parallel rounds to prove it. Run with `MONGODB_TEST_URI=... go test -tags integration ./internal/cart/... -v -count=1`. |
+| Cart stores choices, not prices | The cart doc holds only `offerId`, `productId`, `quantity`. Price, name, seller and stock are looked up live on every read (one `$lookup` over at most 20 offers + one key count), so a cart can never show a stale price. |
+| PUT doesn't cap at stock, merge does | `PUT` stores the number the user picked and the line shows `NOT_ENOUGH_STOCK`; changing it silently would hide that stock dropped. Merge caps, because there the user never picked the merged number. |
+| Cart size | 20 lines, 10 per line. Protects the db and bounds the offer lookup a public `quote` can trigger. Merge drops extra guest lines with reason `CART_FULL`. |
+| Repeated offer in a quote/merge body | `422`, not merged. The client keys its guest cart by `offerId`, so a repeat means a broken request. |
 | `golang.org/x/crypto` version | Pinned at v0.54. Newer versions need Go 1.26, which would raise the `go` line in go.mod and the toolchain the Dockerfile needs. |
 
 ## 12. Future improvements
