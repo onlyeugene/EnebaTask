@@ -1,0 +1,4 @@
+design-reference/screenshots/
+.env
+node_modules/
+.DS_Store
