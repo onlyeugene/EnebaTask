@@ -15,20 +15,28 @@ import (
 )
 
 type Handler struct {
-	svc *Service
+	svc    *Service
+	search Searcher
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, search Searcher) *Handler {
+	return &Handler{svc: svc, search: search}
 }
 
+// list serves the store. With ?q= it goes through Atlas Search (typos, partial words);
+// without it, a plain find on the B-tree indexes, which is cheaper and exact.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	q, err := parseListQuery(r.URL.Query())
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	res, err := h.svc.List(r.Context(), q)
+	var res ListResult
+	if q.Q != "" {
+		res, err = h.search.Search(r.Context(), q)
+	} else {
+		res, err = h.svc.List(r.Context(), q)
+	}
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -78,10 +86,16 @@ func notFound(err error) error {
 
 // parseListQuery reads GET /api/products params (API.md). Any bad value is a 400 that names
 // the param, so a typo in a link fails loudly instead of quietly ignoring the filter.
-// q is read in phase 4 (Atlas Search).
 func parseListQuery(v url.Values) (ListQuery, error) {
 	q := ListQuery{InStockOnly: true, Sort: SortBestselling, Page: 1, PageSize: 20}
 	var err error
+
+	if q.Q, err = SearchText(v.Get("q")); err != nil {
+		return q, err
+	}
+	if q.Q != "" {
+		q.Sort = SortRelevance // default with q; an explicit sort below still wins
+	}
 
 	if q.Types, err = enumList(v, "type", Types); err != nil {
 		return q, err
@@ -117,8 +131,8 @@ func parseListQuery(v url.Values) (ListQuery, error) {
 		if !slices.Contains(Sorts, s) {
 			return q, badParam("sort", "must be one of "+strings.Join(Sorts, ", "))
 		}
-		// relevance needs a search query; without one, keep the default.
-		if s != SortRelevance {
+		// relevance needs a search query; without one, keep the default (bestselling).
+		if s != SortRelevance || q.Q != "" {
 			q.Sort = s
 		}
 	}
@@ -130,6 +144,16 @@ func parseListQuery(v url.Values) (ListQuery, error) {
 		return q, err
 	}
 	return q, nil
+}
+
+// SearchText trims the search box text and rejects anything over MaxQueryLen.
+// Exported because the autocomplete handler applies the same rule.
+func SearchText(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if len([]rune(s)) > MaxQueryLen {
+		return "", badParam("q", fmt.Sprintf("must be at most %d characters", MaxQueryLen))
+	}
+	return s, nil
 }
 
 func enumList(v url.Values, name string, allowed []Option) ([]string, error) {

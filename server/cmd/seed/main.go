@@ -3,6 +3,9 @@
 //	go run ./cmd/seed            # refuses if products already exist
 //	go run ./cmd/seed --reset    # clears catalog, carts and orders first
 //
+// After inserting, it creates (or updates) the Atlas Search index from atlas/products_search.json
+// and waits until it is READY.
+//
 // It reads MONGODB_URI and MONGODB_DB from server/.env or the environment.
 // MONGODB_DB=eneba_prod also needs --allow-prod.
 package main
@@ -93,6 +96,15 @@ func run(reset, allowProd bool) error {
 
 	slog.Info("seeded", "db", dbName, "sellers", len(d.sellers), "products", len(d.products),
 		"offers", len(d.offers), "keys", len(d.keys), "blocks", len(d.blocks))
+
+	// Its own timeout: Atlas builds the index in the background, which on M0 can take a minute or two.
+	slog.Info("creating Atlas Search index and waiting until READY", "index", db.SearchIndexName)
+	searchCtx, cancelSearch := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancelSearch()
+	if err := db.EnsureSearchIndex(searchCtx, database); err != nil {
+		return err
+	}
+	slog.Info("search index ready", "index", db.SearchIndexName)
 	return nil
 }
 
