@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"eugene/internal/auth"
+	"eugene/internal/cart"
 	"eugene/internal/home"
 	"eugene/internal/home/blocks"
 	"eugene/internal/keys"
@@ -63,11 +64,14 @@ func main() {
 	searchSvc := search.NewService(search.NewMongoRepo(database))
 	productsSvc := products.NewService(products.NewMongoRepo(database), keyRepo, time.Now)
 	homeSvc := home.NewService(home.NewMongoRepo(database), blocks.Registry(productsSvc))
+	cartSvc := cart.NewService(cart.NewMongoRepo(database), keyRepo, time.Now)
+	authHandler := auth.NewHandler(authSvc)
 	h := handlers{
-		auth:     auth.NewHandler(authSvc),
+		auth:     authHandler,
 		products: products.NewHandler(productsSvc, searchSvc),
 		search:   search.NewHandler(searchSvc),
 		home:     home.NewHandler(homeSvc, cfg.IsDev()),
+		cart:     cart.NewHandler(cartSvc, authHandler.RequireAuth),
 	}
 
 	srv := &http.Server{
