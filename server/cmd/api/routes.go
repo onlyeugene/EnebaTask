@@ -9,6 +9,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"eugene/internal/auth"
 	"eugene/internal/platform/config"
 	"eugene/internal/platform/db"
 	"eugene/internal/platform/httpx"
@@ -19,6 +20,7 @@ import (
 
 // handlers holds one HTTP handler per feature. main.go builds them; newRouter only mounts them.
 type handlers struct {
+	auth     *auth.Handler
 	products *products.Handler
 	search   *search.Handler
 }
@@ -46,6 +48,7 @@ func newRouter(cfg config.Config, database *mongo.Database, h handlers) http.Han
 	r.Get("/healthz", healthz(database))
 
 	r.Route("/api", func(api chi.Router) {
+		api.Mount("/auth", h.auth.Routes())
 		api.Mount("/products", h.products.Routes())
 		api.Mount("/search", h.search.Routes())
 	})

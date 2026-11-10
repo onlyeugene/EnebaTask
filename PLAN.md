@@ -412,6 +412,7 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  │  └─ search_index.go    # create/check Atlas Search index
 │  │  │  ├─ httpx/
 │  │  │  │  ├─ respond.go         # JSON helpers: OK, Created, NoContent
+│  │  │  │  ├─ decode.go          # DecodeJSON: 1 MB cap, bad JSON → 400
 │  │  │  │  └─ errors.go          # AppError type, error codes, WriteError
 │  │  │  └─ middleware/
 │  │  │     ├─ logger.go          # structured request logging
@@ -426,6 +427,7 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  ├─ service.go            # Register, Login, Refresh, Logout — no Mongo calls here
 │  │  │  ├─ service_test.go       # in-memory repos + fake clock; all auth test cases
 │  │  │  ├─ middleware.go         # RequireAuth: verify sig → check jti → put userID in ctx
+│  │  │  ├─ middleware_test.go    # status + error code through the real routes; rate limit
 │  │  │  ├─ handler.go            # HTTP only: decode body, call service, write response
 │  │  │  └─ routes.go             # Routes(): /register, /login, /refresh, /logout, /me → mounted at /api/auth
 │  │  │
@@ -668,7 +670,7 @@ Known gap: reuse detection deletes refresh tokens, but access tokens already iss
 
 **Protected pages:** `RequireAuth` wraps `/checkout` and `/orders*`. It calls `useMe()` (`GET /api/auth/me`); while loading it shows a skeleton, on no user it does `router.replace("/login?next=…")`. This is client-side only because tokens live in localStorage, which the Next server can't see. The real protection is the API returning 401.
 
-**Tests** (`auth_test.go`, no database: stores are interfaces with in-memory fakes, and the service takes a `now func() time.Time`):
+**Tests** (`service_test.go` and `middleware_test.go`, no database: stores are interfaces with in-memory fakes, and the service takes a `now func() time.Time`):
 - Expired access token → middleware 401 `TOKEN_EXPIRED`.
 - Revoked jti → 401 `TOKEN_REVOKED`; a fresh token for the same user still works.
 - Rotation: refresh returns a new pair; old refresh token is marked used; new one works.
@@ -723,7 +725,7 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | 2 ✅ | Indexes + seed: sellers, ~60 products (fictional titles), 2–4 offers each, 5–20 keys per offer, SVG covers, homepage blocks | `go run ./cmd/seed --reset`; docs visible in Atlas `eneba_dev` |
 | 3 ✅ | Catalog API: list with filters/sort/pagination (no `q`), filters, product detail + offers, cover route | curl each; open a `cover.svg` in the browser |
 | 4 ✅ | Atlas Search: create index from JSON, `q` on `/api/products`, `/api/search/autocomplete` | Typo query and partial query return the right product |
-| 5 | Auth part 1: users, register/login, JWT, middleware, `/me`, rate limit + tests for expired/revoked | `go test ./internal/auth/...` green; curl register → me |
+| 5 ✅ | Auth part 1: users, register/login, JWT, middleware, `/me`, rate limit + tests for expired/revoked | `go test ./internal/auth/...` green; curl register → me |
 | 6 | Auth part 2: refresh rotation, reuse detection, logout, TTL indexes + tests | Tests for rotation and reuse green |
 | 7 | Homepage: layout endpoint, registry, 6 block services, `?fail=1` | Each block id returns data; `?fail=1` returns 503 |
 | 8 | Cart API: quote, get, put, delete, merge | curl flow: merge → put → get shows live prices |
@@ -759,6 +761,11 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Search `q` length | Trimmed, capped at 100 chars (`400` above). Fuzzy matching cost grows with every term, and no product name is that long. |
 | Where `Searcher` lives | `products.Searcher` interface, implemented by `search.Service`. `search` imports `products` (for `ListQuery`, `ToCard`), so the interface has to sit in `products` to avoid an import cycle. |
 | Unknown errors | `httpx.WriteError` logs them and returns `500 INTERNAL "Something went wrong"`, so driver messages never reach the browser. |
+| Refresh token in phase 5 | Register and login already return and store a refresh token (hash only, new `familyId` per login), because API.md promises it. `/refresh` rotation, reuse detection and logout come in phase 6. |
+| Auth rate limit | One `httprate` limiter shared by `/register` and `/login`: 10 per minute per IP across both, not per route. `/me` is not limited: the client calls it on every protected page and in the header, and it already needs a valid token. `/refresh` (phase 6) gets its own, higher limiter, because every open tab refreshes every 15 minutes and must not be blocked by failed logins from the same IP. The key is `r.RemoteAddr` after our `ClientIP` middleware, not httprate's `KeyByRealIP`, which trusts headers the client sets. |
+| Login timing | For an unknown email, login still runs one bcrypt compare against a dummy hash, so the response time doesn't reveal whether the email has an account. |
+| Auth errors in the service | The service returns plain errors (`ErrTokenExpired`, `ValidationError`, …) and `auth.toHTTP` maps them to API.md codes, so the service never imports `net/http`. |
+| `golang.org/x/crypto` version | Pinned at v0.54. Newer versions need Go 1.26, which would raise the `go` line in go.mod and the toolchain the Dockerfile needs. |
 
 ## 12. Future improvements
 
@@ -775,3 +782,4 @@ Not planned for the 3 days. Listed so the trade-offs are on record.
 9. **Store sorts that use their index.** Every store sort ends in `_id: 1` so pages stay stable, but no index holds `_id`, so Mongo can't read results in sort order. `explain` on `eneba_dev` shows that for every sort it scans all matching index entries, fetches every doc, sorts them in memory and keeps 20 (60 docs read for 20 returned). Without the tie-break, `platform=steam&sort=price_asc` reads the `minPriceCents` index in order and stops after 44. No cost at 60 products; at 100k it would read every in-stock product per page. Fix: add `_id` as the last field of the sort indexes (`{active, inStock, minPriceCents, _id}` and so on), and give the tie-break the main field's direction in `listSort` so `price_desc` can read the index backwards. `inStock=false` needs its own look: there `inStock` is not fixed by the filter, so the leading `inStock: -1` sort key has to line up with the index too, and `newest` uses `{active, createdAt}`, which has no `inStock` at all. Check with `explain` that the plan has no `SORT` stage.
 10. **Two seeds at once.** Known limit, accepted: the seed is a dev tool only the owner runs. Without `--reset`, a second run fails on the unique `sellers.slug` index and inserts nothing. With `--reset` on both, the clear and inserts are separate steps, so they can interleave: both runs report success, but the db can hold orphan keys and every homepage block twice. A seed that dies halfway leaves partial data too. Re-running with `--reset` fixes both. Fix if it ever matters: run the clear and inserts in one transaction.
 11. **Search fallback when Atlas Search fails.** Today a `$search` error is a `500`, so store search and autocomplete stop working while the rest of the store keeps going. Fix: when the aggregate errors, run a plain `find` with a case-insensitive, escaped prefix regex on `name` (`regexp.QuoteMeta` on each word) plus the same filters and sort. Partial names would still work; typos would not. It does not help when the index is missing, because then `$search` returns no results instead of an error; `/healthz` reports that case as `"search": "missing"`.
+12. **Rate limit counts that survive restarts.** httprate keeps its counts in memory, so a deploy, crash or free-tier sleep resets every IP to zero, and a second instance would keep its own counts. Accepted: a reset gives at most 10 more attempts, and bcrypt is the real defence. Per-IP limits also let someone with many IPs get 10 tries on each. Fix: keep counts in a shared store (`httprate-redis`, or a Mongo collection with a TTL index), and add a per-email limit on failed logins.

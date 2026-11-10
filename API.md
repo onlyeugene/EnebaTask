@@ -108,12 +108,14 @@ type Order = {
 | GET | `/api/auth/me` | Bearer | — | `200 { user }` |
 
 Rules:
-- Password: 8–72 chars (bcrypt ignores bytes past 72), at least one digit or symbol. Email lowercased and trimmed.
-- Login returns the same `401 UNAUTHORIZED "Invalid email or password"` for unknown email and wrong password, so it doesn't reveal which emails exist.
+- Password: 8–72 bytes (bcrypt ignores bytes past 72), at least one digit or symbol. Email lowercased and trimmed. `name` optional, at most 50 chars, stored as `""` when left out.
+- Broken rules → `422 VALIDATION_FAILED` with `fields` (e.g. `{ "email": "is not a valid email", "password": "must contain a digit or a symbol" }`). Email already registered → `409 EMAIL_TAKEN`.
+- Login returns the same `401 UNAUTHORIZED "Invalid email or password"` for unknown email and wrong password, so it doesn't reveal which emails exist. An empty email or password is a `422`.
 - Refresh: unknown or expired token → `401 UNAUTHORIZED`. Already-used token → `401 TOKEN_REUSED` and **every refresh token for that user is deleted** (all sessions must log in again).
 - Logout: adds the access token's `jti` to `revoked_tokens`, deletes the given refresh token. The client clears local tokens even if this call fails.
-- Middleware errors: `401 TOKEN_EXPIRED` (client should refresh), `401 TOKEN_REVOKED` / `401 UNAUTHORIZED` (client should also try refresh once; if that fails, log out).
-- `/register`, `/login`, `/refresh` are rate limited per IP (10/min).
+- Middleware errors: `401 TOKEN_EXPIRED` (client should refresh), `401 TOKEN_REVOKED` / `401 UNAUTHORIZED` (client should also try refresh once; if that fails, log out). Missing header, bad signature, wrong `alg` or issuer → `UNAUTHORIZED`.
+- `/register` and `/login` share one rate limit per IP: 10 requests per minute across both, then `429 RATE_LIMITED`. `/refresh` has its own, higher limit (set in phase 6). `/me` and `/logout` are not rate limited.
+- Malformed JSON body → `400 BAD_REQUEST`.
 
 ## Catalog and search
 
