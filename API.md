@@ -19,7 +19,7 @@ Auth column: **—** public, **Bearer** needs `Authorization: Bearer <accessToke
 | Status | Code examples | When |
 |---|---|---|
 | 400 | `BAD_REQUEST` | Malformed JSON, bad query param |
-| 401 | `UNAUTHORIZED`, `TOKEN_EXPIRED`, `TOKEN_REVOKED` | Missing/invalid/expired/revoked access token, bad credentials |
+| 401 | `UNAUTHORIZED`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `TOKEN_REUSED` | Missing/invalid/expired/revoked access token, bad credentials, refresh token used twice |
 | 402 | `PAYMENT_DECLINED` | Simulated card declined |
 | 403 | `FORBIDDEN` | Order belongs to another user |
 | 404 | `NOT_FOUND` | |
@@ -111,10 +111,10 @@ Rules:
 - Password: 8–72 bytes (bcrypt ignores bytes past 72), at least one digit or symbol. Email lowercased and trimmed. `name` optional, at most 50 chars, stored as `""` when left out.
 - Broken rules → `422 VALIDATION_FAILED` with `fields` (e.g. `{ "email": "is not a valid email", "password": "must contain a digit or a symbol" }`). Email already registered → `409 EMAIL_TAKEN`.
 - Login returns the same `401 UNAUTHORIZED "Invalid email or password"` for unknown email and wrong password, so it doesn't reveal which emails exist. An empty email or password is a `422`.
-- Refresh: unknown or expired token → `401 UNAUTHORIZED`. Already-used token → `401 TOKEN_REUSED` and **every refresh token for that user is deleted** (all sessions must log in again).
-- Logout: adds the access token's `jti` to `revoked_tokens`, deletes the given refresh token. The client clears local tokens even if this call fails.
+- Refresh: each refresh token works once; the response carries a new pair. Unknown, empty or expired token → `401 UNAUTHORIZED`. Already-used token → `401 TOKEN_REUSED` and **every refresh token for that user is deleted** (all sessions must log in again).
+- Logout: adds the access token's `jti` to `revoked_tokens` (that access token stops working at once) and deletes the given refresh token along with every token rotated from the same login. Other logins of the same user stay signed in. An unknown, empty or someone else's `refreshToken` is skipped, still `204`. The client clears local tokens even if this call fails.
 - Middleware errors: `401 TOKEN_EXPIRED` (client should refresh), `401 TOKEN_REVOKED` / `401 UNAUTHORIZED` (client should also try refresh once; if that fails, log out). Missing header, bad signature, wrong `alg` or issuer → `UNAUTHORIZED`.
-- `/register` and `/login` share one rate limit per IP: 10 requests per minute across both, then `429 RATE_LIMITED`. `/refresh` has its own, higher limit (set in phase 6). `/me` and `/logout` are not rate limited.
+- `/register` and `/login` share one rate limit per IP: 10 requests per minute across both, then `429 RATE_LIMITED`. `/refresh` has its own limit: 60 per minute per IP, counted apart from login, so failed logins never block a refresh. `/me` and `/logout` are not rate limited.
 - Malformed JSON body → `400 BAD_REQUEST`.
 
 ## Catalog and search
