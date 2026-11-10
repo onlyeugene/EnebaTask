@@ -169,13 +169,16 @@ The header search box calls `/api/search/autocomplete` as you type (debounced 20
 { main: Banner; tiles: Banner[] }      // Banner = { title, subtitle, ctaLabel, href, theme: "purple"|"yellow"|"mint"|"pink" }
 
 // type: "category_row"
-{ categories: { slug: string; label: string; icon: string; count: number }[] } // icon = lucide name
+{ categories: { slug: string; label: string; icon: string; href: string; count: number }[] }
+// icon = lucide name; href = store link, e.g. "/store?platform=steam"; count = in-stock products behind that link
 
 // types: "bestsellers" | "deals" | "new_releases" | "gift_cards"
 { products: ProductCard[]; seeAllHref: string }   // e.g. "/store?sort=discount"
 ```
 
-A block whose service fails returns `503 { error: { code: "BLOCK_UNAVAILABLE" } }`. Only that block shows an error; the layout and other blocks are unaffected.
+Rails return in-stock products only, the same cards and order as the store page their `seeAllHref` opens. `deals` keeps only products with at least 20% off (set in the block's config).
+
+A block whose service fails or takes over 2 seconds returns `503 { error: { code: "BLOCK_UNAVAILABLE" } }`. Only that block shows an error; the layout and other blocks are unaffected. An id that isn't a valid block id, or a block that is inactive or doesn't exist → `404 NOT_FOUND`.
 
 Dev only (`APP_ENV=development`): `GET /api/homepage/blocks/{id}?fail=1` forces a 503, to demo block isolation.
 
