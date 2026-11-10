@@ -13,9 +13,15 @@ import (
 	"eugene/internal/platform/db"
 	"eugene/internal/platform/httpx"
 	"eugene/internal/platform/middleware"
+	"eugene/internal/products"
 )
 
-func newRouter(cfg config.Config, client *mongo.Client) http.Handler {
+// handlers holds one HTTP handler per feature. main.go builds them; newRouter only mounts them.
+type handlers struct {
+	products *products.Handler
+}
+
+func newRouter(cfg config.Config, client *mongo.Client, h handlers) http.Handler {
 	r := chi.NewRouter()
 
 	// Order matters: request id and client IP first so the logger can print them;
@@ -36,6 +42,10 @@ func newRouter(cfg config.Config, client *mongo.Client) http.Handler {
 	})
 
 	r.Get("/healthz", healthz(client))
+
+	r.Route("/api", func(api chi.Router) {
+		api.Mount("/products", h.products.Routes())
+	})
 
 	return r
 }

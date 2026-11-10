@@ -424,10 +424,9 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │
 │  │  ├─ products/
 │  │  │  ├─ model.go              # Product, ProductCard, Offer, Seller
-│  │  │  ├─ repository.go         # ProductRepo, OfferRepo, SellerRepo interfaces
+│  │  │  ├─ repository.go         # Repository (products + offers, sellers via $lookup), StockCounter
 │  │  │  ├─ repository_mongo.go
-│  │  │  ├─ service.go            # List, Filters, Detail — no Mongo calls here
-│  │  │  ├─ service_test.go
+│  │  │  ├─ service.go            # List, Filters, Detail, Summarize — no Mongo calls here
 │  │  │  ├─ cover.go              # deterministic SVG from name + palette (used by seed too)
 │  │  │  ├─ handler.go            # list (hands ?q= to the search service), filters, detail, cover
 │  │  │  └─ routes.go             # Routes(): /, /filters, /{slug}, /{slug}/cover.svg → mounted at /api/products
@@ -699,43 +698,31 @@ Trade-off we accept: localStorage tokens can be read by any script that runs on 
 | Admin | None; data changes go through the seed script | |
 | Images | Generated SVG covers, lucide icons for platforms/categories | No copyrighted art, no brand logos |
 
-### Stretch (only if Day 3 ends early)
+### Stretch (only if time allows)
 1. Seller offers: `POST /api/seller/offers` with key upload, a `role: "seller"` on users.
 2. Wishlist (heart on cards, `wishlists` collection).
 3. "Recently viewed" block (client-only, localStorage).
 
 ---
 
-## 10. Build order (3 days)
+## 10. Build order
 
 Each phase ends with a check you can run. Tag `✅` in this file when done.
 
-### Day 1 — API core
-
 | # | Phase | Done when |
 |---|---|---|
-| 0 | Verify `.gitignore` covers `.env*` (except `.env.example`), `.next/`, `bin/` | All listed paths are ignored |
+| 0 ✅ | Verify `.gitignore` covers `.env*` (except `.env.example`), `.next/`, `bin/` | All listed paths are ignored |
 | 1 ✅ | Server skeleton: `go mod init`, config, chi, CORS, logger, recoverer, JSON error helper, Mongo connect, `/healthz` | `curl localhost:8080/healthz` → `{"status":"ok","db":"ok"}` |
 | 2 ✅ | Indexes + seed: sellers, ~60 products (fictional titles), 2–4 offers each, 5–20 keys per offer, SVG covers, homepage blocks | `go run ./cmd/seed --reset`; docs visible in Atlas `eneba_dev` |
-| 3 | Catalog API: list with filters/sort/pagination (no `q`), filters, product detail + offers, cover route | curl each; open a `cover.svg` in the browser |
+| 3 ✅ | Catalog API: list with filters/sort/pagination (no `q`), filters, product detail + offers, cover route | curl each; open a `cover.svg` in the browser |
 | 4 | Atlas Search: create index from JSON, `q` on `/api/products`, `/api/search/autocomplete` | Typo query and partial query return the right product |
 | 5 | Auth part 1: users, register/login, JWT, middleware, `/me`, rate limit + tests for expired/revoked | `go test ./internal/auth/...` green; curl register → me |
 | 6 | Auth part 2: refresh rotation, reuse detection, logout, TTL indexes + tests | Tests for rotation and reuse green |
-
-### Day 2 — Commerce API + client base
-
-| # | Phase | Done when |
-|---|---|---|
 | 7 | Homepage: layout endpoint, registry, 6 block services, `?fail=1` | Each block id returns data; `?fail=1` returns 503 |
 | 8 | Cart API: quote, get, put, delete, merge | curl flow: merge → put → get shows live prices |
 | 9 | Orders: reserve transaction with expiry-aware claim, simulated pay, cleanup job, list/detail, `claim_integration_test.go` | `go test ./internal/orders/...` green (unit only); `go test -tags integration ./internal/orders/...` → all 4 integration tests green; decline puts stock back and recounts immediately |
 | 10 | Client skeleton: create-next-app (it refuses a folder with unknown files, so move `client/.env.example` aside and put it back after), Tailwind tokens, Metropolis font, `(shop)` layout with Header/Footer (server), Providers, `apiFetch` with single-flight refresh | Page renders with Eneba header and footer; demo disclaimer in footer |
 | 11 | Homepage client: `HomeBlocks`, hero, category row, product rails, `ProductCard` | Home matches screenshots; `?fail=<id>` breaks only one block |
-
-### Day 3 — Flow end to end + deploy
-
-| # | Phase | Done when |
-|---|---|---|
 | 12 | Store + search (match `store.png`, `store2.png`): filter panel, sort, pagination in URL, header `SearchBox` with autocomplete | Typo in header → suggestions → Enter → results page |
 | 13 | Product page (match `product_details1–3.png`) + cart: offers table, add to cart, added-to-cart modal, guest Zustand cart, cart popover, cart page | Guest adds 2 items, reloads, cart is still there |
 | 14 | Auth UI: login/register (RHF + Zod, live password rules), `AccountMenu`, logout, merge on login (section 5b), `RequireAuth` | Guest cart survives login; same offer in both carts ends with the larger quantity; `/orders` redirects when logged out |
@@ -760,6 +747,8 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Loading `server/.env` | `joho/godotenv`. Go has no built-in loader, and `source .env` breaks on the `&` in the Mongo URI. It never overrides vars already set, so Render's values win. |
 | Where routes live | Each feature's `internal/<feature>/routes.go` returns a `chi.Router`; `cmd/api/routes.go` mounts them under `/api` and holds only global middleware, 404/405 and `/healthz` (too small to be a feature). A feature's paths sit next to its handlers, and `main.go` stays wiring only. |
 | Client IP | Own `ClientIP` middleware, not `chimw.RealIP`. RealIP trusts `X-Real-IP`, `True-Client-IP` and the first `X-Forwarded-For` entry, all of which the client sets, so a fake header per request would dodge the login rate limit. In production we take the last `X-Forwarded-For` entry (the one Render's proxy added); locally we ignore all those headers and use the TCP address. |
+| Product page stock | `GET /api/products/{slug}` counts claimable keys live per offer and rebuilds the price summary from that count with `products.Summarize` (the same function the seed uses, and the purchase transaction will use). The cached `offers.stock` is only used by listings. |
+| Bad store query params | `400 BAD_REQUEST` naming the param (unknown platform, `pageSize` over 60, `minPrice` above `maxPrice`), instead of ignoring them, so a broken link fails loudly. |
 | Unknown errors | `httpx.WriteError` logs them and returns `500 INTERNAL "Something went wrong"`, so driver messages never reach the browser. |
 
 ## 12. Future improvements
@@ -774,4 +763,5 @@ Not planned for the 3 days. Listed so the trade-offs are on record.
 6. **Seller accounts** that upload their own keys and set prices.
 7. **Emailed keys** and order receipts.
 8. **Panic after a partial response.** `Recoverer` writes a 500 error body after a panic. If the handler had already started writing, the headers are already sent, so the error JSON is appended to the half-written body and the client gets broken JSON. No current handler streams, so it can't happen yet. Fix: wrap the writer, and if bytes were already sent, abort the connection (`panic(http.ErrAbortHandler)`) instead of writing more.
-9. **Two seeds at once.** Known limit, accepted: the seed is a dev tool only the owner runs. Without `--reset`, a second run fails on the unique `sellers.slug` index and inserts nothing. With `--reset` on both, the clear and inserts are separate steps, so they can interleave: both runs report success, but the db can hold orphan keys and every homepage block twice. A seed that dies halfway leaves partial data too. Re-running with `--reset` fixes both. Fix if it ever matters: run the clear and inserts in one transaction.
+9. **Store sorts that use their index.** Every store sort ends in `_id: 1` so pages stay stable, but no index holds `_id`, so Mongo can't read results in sort order. `explain` on `eneba_dev` shows that for every sort it scans all matching index entries, fetches every doc, sorts them in memory and keeps 20 (60 docs read for 20 returned). Without the tie-break, `platform=steam&sort=price_asc` reads the `minPriceCents` index in order and stops after 44. No cost at 60 products; at 100k it would read every in-stock product per page. Fix: add `_id` as the last field of the sort indexes (`{active, inStock, minPriceCents, _id}` and so on), and give the tie-break the main field's direction in `listSort` so `price_desc` can read the index backwards. `inStock=false` needs its own look: there `inStock` is not fixed by the filter, so the leading `inStock: -1` sort key has to line up with the index too, and `newest` uses `{active, createdAt}`, which has no `inStock` at all. Check with `explain` that the plan has no `SORT` stage.
+10. **Two seeds at once.** Known limit, accepted: the seed is a dev tool only the owner runs. Without `--reset`, a second run fails on the unique `sellers.slug` index and inserts nothing. With `--reset` on both, the clear and inserts are separate steps, so they can interleave: both runs report success, but the db can hold orphan keys and every homepage block twice. A seed that dies halfway leaves partial data too. Re-running with `--reset` fixes both. Fix if it ever matters: run the clear and inserts in one transaction.

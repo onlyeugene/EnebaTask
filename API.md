@@ -136,6 +136,14 @@ Rules:
 | `sort` | `relevance` \| `price_asc` \| `price_desc` \| `bestselling` \| `discount` \| `newest` | default `relevance` with `q`, else `bestselling` |
 | `page`, `pageSize` | `2`, `20` | |
 
+Any bad value (unknown `type`/`platform`/`region`, non-number price, `minPrice` above `maxPrice`, unknown `sort`, `pageSize` outside 1–60) → `400 BAD_REQUEST` with the param name in `message`. Unknown genres are not an error; they just match nothing. Sorted lists always put in-stock products first and break ties by id, so pages never overlap.
+
+`/api/products/filters` counts active, in-stock products (the store's default view). Each list only holds values with at least one product: `types`, `platforms`, `regions` in a fixed order, `genres` alphabetical. `price` is the lowest and highest `minPriceCents` among them.
+
+`/api/products/{slug}`: `offers[].stock` is counted live from the `keys` collection, and the product's `minPriceCents`, `offerCount`, `inStock`, `discountPct` are rebuilt from those live counts, so the page never shows a stale price. Inactive products → `404 NOT_FOUND`.
+
+`/api/products/{slug}/cover.svg` also sends `Content-Security-Policy: default-src 'none'` so an SVG opened in a tab can never run script.
+
 The header search box calls `/api/search/autocomplete` as you type (debounced 200 ms, min 2 chars). Pressing Enter opens `/store?q=...`, which calls `/api/products?q=...`.
 
 ## Homepage
