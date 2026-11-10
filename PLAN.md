@@ -273,13 +273,14 @@ type BlockService interface {
     Resolve(ctx context.Context, block Block) (any, error)
 }
 
-registry := map[string]BlockService{
-    "hero":         HeroService{},                 // banners from block.config
-    "category_row": CategoryService{products},     // aggregation: count of products per type/platform
-    "bestsellers":  BestsellersService{products},  // sort soldCount desc
-    "deals":        DealsService{products},        // sort discountPct desc, discountPct >= 20
-    "new_releases": NewReleasesService{products},  // sort createdAt desc
-    "gift_cards":   GiftCardsService{products},    // type = gift_card, sort soldCount desc
+// blocks/registry.go; catalog = *products.Service
+registry := map[string]home.BlockService{
+    "hero":         Hero{},                                       // banners from block.config
+    "category_row": Categories{catalog},                          // counts from the store's filter aggregation
+    "bestsellers":  Rail{catalog, "bestselling", nil, "/store?sort=bestselling"},
+    "deals":        Rail{catalog, "discount", nil, "/store?sort=discount"},     // + minDiscountPct 20 from config
+    "new_releases": Rail{catalog, "newest", nil, "/store?sort=newest"},
+    "gift_cards":   Rail{catalog, "bestselling", {"gift_card"}, "/store?type=gift_card"},
 }
 ```
 
@@ -292,6 +293,7 @@ registry := map[string]BlockService{
 - `<HomeBlocks />` runs `useQuery(["homepage"])` for the layout, then maps each entry to a component by `type`:
   `hero → HeroBlock`, `category_row → CategoryRowBlock`, the four rail types → `ProductRailBlock`.
 - Each block component runs its own `useQuery(["homepage-block", id])` and renders its own skeleton (shaped like the screenshots: dark purple card placeholders), its own error box with a "Retry" button, and its own content.
+- Block queries use `retry: 1`. TanStack Query's default is 3 retries with growing delays, so a broken block would sit on its skeleton for several seconds before showing the error. One retry covers a brief network blip; after that the user gets the error and the Retry button.
 - Each block is also wrapped in a small React error boundary, so a render bug in one block doesn't blank the page.
 - If the layout call itself fails, the page shows one error with retry (there is nothing else to show).
 - Demo: in dev, `?fail=<blockId>` on the home URL passes `?fail=1` to that block's request, showing one broken block among working ones.
@@ -449,18 +451,16 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  └─ routes.go             # Routes(): /autocomplete → mounted at /api/search
 │  │  │
 │  │  ├─ home/
-│  │  │  ├─ model.go              # Block, Banner, CategoryItem
-│  │  │  ├─ repository.go         # BlockRepo interface
+│  │  │  ├─ model.go              # Block, configs, Banner, Category, LayoutEntry, Resolved
+│  │  │  ├─ repository.go         # Repository + BlockService interfaces
 │  │  │  ├─ repository_mongo.go
-│  │  │  ├─ service.go            # Layout, ResolveBlock — dispatches to blocks/
-│  │  │  ├─ blocks/               # one file per block type, each implements BlockService
+│  │  │  ├─ service.go            # Layout, Resolve (2 s timeout) — dispatches by type through the registry
+│  │  │  ├─ blocks/               # each implements home.BlockService
+│  │  │  │  ├─ registry.go        # type → service; built in main.go (blocks imports home, so home can't build it)
 │  │  │  │  ├─ hero.go
 │  │  │  │  ├─ categories.go
-│  │  │  │  ├─ bestsellers.go
-│  │  │  │  ├─ deals.go
-│  │  │  │  ├─ new_releases.go
-│  │  │  │  └─ gift_cards.go
-│  │  │  ├─ handler.go            # layout, one block
+│  │  │  │  └─ rail.go            # bestsellers, deals, new_releases, gift_cards: one service, four entries
+│  │  │  ├─ handler.go            # layout, one block, ?fail=1 in dev
 │  │  │  └─ routes.go             # Routes(): /, /blocks/{id} → mounted at /api/homepage
 │  │  │
 │  │  ├─ cart/
@@ -728,7 +728,7 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | 4 ✅ | Atlas Search: create index from JSON, `q` on `/api/products`, `/api/search/autocomplete` | Typo query and partial query return the right product |
 | 5 ✅ | Auth part 1: users, register/login, JWT, middleware, `/me`, rate limit + tests for expired/revoked | `go test ./internal/auth/...` green; curl register → me |
 | 6 ✅ | Auth part 2: refresh rotation, reuse detection, logout, TTL indexes + tests | Tests for rotation and reuse green |
-| 7 | Homepage: layout endpoint, registry, 6 block services, `?fail=1` | Each block id returns data; `?fail=1` returns 503 |
+| 7 ✅ | Homepage: layout endpoint, registry, 6 block services, `?fail=1` | Each block id returns data; `?fail=1` returns 503 |
 | 8 | Cart API: quote, get, put, delete, merge | curl flow: merge → put → get shows live prices |
 | 9 | Orders: reserve transaction with expiry-aware claim, simulated pay, cleanup job, list/detail, `claim_integration_test.go` | `go test ./internal/orders/...` green (unit only); `go test -tags integration ./internal/orders/...` → all 4 integration tests green; decline puts stock back and recounts immediately |
 | 10 | Client skeleton: create-next-app (it refuses a folder with unknown files, so move `client/.env.example` aside and put it back after), Tailwind tokens, Metropolis font, `(shop)` layout with Header/Footer (server), Providers, `apiFetch` with single-flight refresh | Page renders with Eneba header and footer; demo disclaimer in footer |
@@ -769,6 +769,9 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Logout deletes the refresh family | Logout deletes every refresh token with the given token's `familyId` (and the caller's `userId`), not just that one token. If a thief rotated a stolen copy first, their newer token is in the same family, so logout ends it too. Other logins (other families) stay signed in. Same cost: one lookup, one `DeleteMany`. |
 | Refresh write order | `/refresh` marks the old token used (and sets `replacedBy` to an id picked in advance) before inserting the new one, since the `userId` is only known after that first atomic step. If the insert fails, the user has to log in again. Rare, and safe. |
 | `/refresh` rate limit | 60 per minute per IP, own counter. Each tab refreshes about once per 15 minutes, so this only stops floods. |
+| Homepage rails | One `Rail` service, registered four times with a different sort, type filter and "see all" link, instead of four near-identical files. It calls `products.Service.List`, so a rail shows the same cards in the same order as the store page its link opens. The deals minimum (20%) is applied after the query: the rail sorts by discount, highest first, so dropping the tail equals filtering in the query, and `ListQuery` needs no field the store never uses. |
+| Category counts | Taken from `products.Service.Filters` (one aggregation, in-stock only), so a tile's count matches what the store shows after the click. Each tile also gets an `href` built on the server from the block config, so the client never maps a category to a store filter itself. |
+| Block errors | Bad or unknown block id → `404`. Any other failure (db error, timeout, bad config, type with no service) → `503 BLOCK_UNAVAILABLE`, logged with the block id. |
 | `golang.org/x/crypto` version | Pinned at v0.54. Newer versions need Go 1.26, which would raise the `go` line in go.mod and the toolchain the Dockerfile needs. |
 
 ## 12. Future improvements
@@ -787,3 +790,4 @@ Not planned for the 3 days. Listed so the trade-offs are on record.
 10. **Two seeds at once.** Known limit, accepted: the seed is a dev tool only the owner runs. Without `--reset`, a second run fails on the unique `sellers.slug` index and inserts nothing. With `--reset` on both, the clear and inserts are separate steps, so they can interleave: both runs report success, but the db can hold orphan keys and every homepage block twice. A seed that dies halfway leaves partial data too. Re-running with `--reset` fixes both. Fix if it ever matters: run the clear and inserts in one transaction.
 11. **Search fallback when Atlas Search fails.** Today a `$search` error is a `500`, so store search and autocomplete stop working while the rest of the store keeps going. Fix: when the aggregate errors, run a plain `find` with a case-insensitive, escaped prefix regex on `name` (`regexp.QuoteMeta` on each word) plus the same filters and sort. Partial names would still work; typos would not. It does not help when the index is missing, because then `$search` returns no results instead of an error; `/healthz` reports that case as `"search": "missing"`.
 12. **Rate limit counts that survive restarts.** httprate keeps its counts in memory, so a deploy, crash or free-tier sleep resets every IP to zero, and a second instance would keep its own counts. Accepted: a reset gives at most 10 more attempts, and bcrypt is the real defence. Per-IP limits also let someone with many IPs get 10 tries on each. Fix: keep counts in a shared store (`httprate-redis`, or a Mongo collection with a TTL index), and add a per-email limit on failed logins.
+13. **Rails skip the count.** Homepage rails call `products.Service.List`, which runs `CountDocuments` for a `total` the homepage never reads: 4 wasted queries per page load (about 16 db round trips in all). Accepted: cheap at 60 products, and reusing `List` keeps rails identical to the store. Fix: a `products.Service.Top(ctx, q)` that runs only the `Find`, used by `Rail`.

@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"eugene/internal/auth"
+	"eugene/internal/home"
 	"eugene/internal/platform/config"
 	"eugene/internal/platform/db"
 	"eugene/internal/platform/httpx"
@@ -23,6 +24,7 @@ type handlers struct {
 	auth     *auth.Handler
 	products *products.Handler
 	search   *search.Handler
+	home     *home.Handler
 }
 
 func newRouter(cfg config.Config, database *mongo.Database, h handlers) http.Handler {
@@ -51,6 +53,7 @@ func newRouter(cfg config.Config, database *mongo.Database, h handlers) http.Han
 		api.Mount("/auth", h.auth.Routes())
 		api.Mount("/products", h.products.Routes())
 		api.Mount("/search", h.search.Routes())
+		api.Mount("/homepage", h.home.Routes())
 	})
 
 	return r

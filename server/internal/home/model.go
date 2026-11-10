@@ -34,9 +34,10 @@ type Banner struct {
 	Theme    string `bson:"theme" json:"theme"` // purple | yellow | mint | pink
 }
 
+// HeroConfig is stored as the block's config and sent as-is as the block's data.
 type HeroConfig struct {
-	Main  Banner   `bson:"main"`
-	Tiles []Banner `bson:"tiles"`
+	Main  Banner   `bson:"main" json:"main"`
+	Tiles []Banner `bson:"tiles" json:"tiles"`
 }
 
 // CategoryLink points at a store filter: Param and Value become /store?{param}={value},
@@ -57,4 +58,29 @@ type CategoryConfig struct {
 type RailConfig struct {
 	Limit          int `bson:"limit"`
 	MinDiscountPct int `bson:"minDiscountPct,omitempty"` // deals only
+}
+
+// ---- JSON shapes from API.md ----
+
+// LayoutEntry is one row of GET /api/homepage. No content, so the layout can't fail because a block does.
+type LayoutEntry struct {
+	ID    string `json:"id"`
+	Type  string `json:"type"`
+	Title string `json:"title"`
+}
+
+// Resolved is GET /api/homepage/blocks/{id}. Data depends on Type.
+type Resolved struct {
+	LayoutEntry
+	Data any `json:"data"`
+}
+
+// Category is one tile in the category row. Href is built on the server, so the client
+// doesn't need to know which store filter a category maps to.
+type Category struct {
+	Slug  string `json:"slug"`
+	Label string `json:"label"`
+	Icon  string `json:"icon"`
+	Href  string `json:"href"`
+	Count int    `json:"count"`
 }
