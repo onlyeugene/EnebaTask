@@ -390,8 +390,9 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  ├─ main.go               # wire only: config → db → router → cleanup job → ListenAndServe
 │  │  │  └─ routes.go             # global middleware, 404/405, /healthz, mounts each feature under /api
 │  │  └─ seed/
-│  │     ├─ main.go               # entry: flags, db connect, call seed functions
-│  │     └─ data.go               # fake titles, sellers, block configs, cover palettes
+│  │     ├─ main.go               # entry: flags, db connect, clear, insert
+│  │     ├─ data.go               # fake titles, sellers, block configs, cover palettes
+│  │     └─ build.go              # turns data.go into documents (fixed random seed, so runs repeat)
 │  ├─ atlas/
 │  │  └─ products_search.json     # Atlas Search index definition
 │  ├─ internal/
@@ -715,7 +716,7 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 |---|---|---|
 | 0 | Verify `.gitignore` covers `.env*` (except `.env.example`), `.next/`, `bin/` | All listed paths are ignored |
 | 1 ✅ | Server skeleton: `go mod init`, config, chi, CORS, logger, recoverer, JSON error helper, Mongo connect, `/healthz` | `curl localhost:8080/healthz` → `{"status":"ok","db":"ok"}` |
-| 2 | Indexes + seed: sellers, ~60 products (fictional titles), 2–4 offers each, 5–20 keys per offer, SVG covers, homepage blocks | `go run ./cmd/seed --reset`; docs visible in Atlas `eneba_dev` |
+| 2 ✅ | Indexes + seed: sellers, ~60 products (fictional titles), 2–4 offers each, 5–20 keys per offer, SVG covers, homepage blocks | `go run ./cmd/seed --reset`; docs visible in Atlas `eneba_dev` |
 | 3 | Catalog API: list with filters/sort/pagination (no `q`), filters, product detail + offers, cover route | curl each; open a `cover.svg` in the browser |
 | 4 | Atlas Search: create index from JSON, `q` on `/api/products`, `/api/search/autocomplete` | Typo query and partial query return the right product |
 | 5 | Auth part 1: users, register/login, JWT, middleware, `/me`, rate limit + tests for expired/revoked | `go test ./internal/auth/...` green; curl register → me |
@@ -773,3 +774,4 @@ Not planned for the 3 days. Listed so the trade-offs are on record.
 6. **Seller accounts** that upload their own keys and set prices.
 7. **Emailed keys** and order receipts.
 8. **Panic after a partial response.** `Recoverer` writes a 500 error body after a panic. If the handler had already started writing, the headers are already sent, so the error JSON is appended to the half-written body and the client gets broken JSON. No current handler streams, so it can't happen yet. Fix: wrap the writer, and if bytes were already sent, abort the connection (`panic(http.ErrAbortHandler)`) instead of writing more.
+9. **Two seeds at once.** Known limit, accepted: the seed is a dev tool only the owner runs. Without `--reset`, a second run fails on the unique `sellers.slug` index and inserts nothing. With `--reset` on both, the clear and inserts are separate steps, so they can interleave: both runs report success, but the db can hold orphan keys and every homepage block twice. A seed that dies halfway leaves partial data too. Re-running with `--reset` fixes both. Fix if it ever matters: run the clear and inserts in one transaction.

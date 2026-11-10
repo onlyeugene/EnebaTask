@@ -26,12 +26,17 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	client, _, err := db.Connect(ctx, cfg.MongoURI, cfg.MongoDB)
+	client, database, err := db.Connect(ctx, cfg.MongoURI, cfg.MongoDB)
 	if err != nil {
 		slog.Error("db", "err", err)
 		os.Exit(1)
 	}
 	defer client.Disconnect(context.Background())
+
+	if err := db.EnsureIndexes(ctx, database); err != nil {
+		slog.Error("indexes", "err", err)
+		os.Exit(1)
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
