@@ -651,9 +651,10 @@ Deploy notes:
 
 **Refresh flow** (`POST /api/auth/refresh`):
 1. `h = sha256(token)`.
-2. `FindOneAndUpdate({ tokenHash: h, usedAt: null, expiresAt: { $gt: now } }, { $set: { usedAt: now } })`. Atomic, so two parallel calls with the same token can't both succeed.
-3. Matched → insert new token (same `familyId`), set `replacedBy` on the old one, issue new access token, return the pair.
+2. Pick the new token's `_id`, then `FindOneAndUpdate({ tokenHash: h, usedAt: null, expiresAt: { $gt: now } }, { $set: { usedAt: now, replacedBy: newId } })`. Atomic, so two parallel calls with the same token can't both succeed.
+3. Matched → insert the new token with that `_id` (same `familyId`), issue a new access token, return the pair.
 4. Not matched → `FindOne({ tokenHash: h })`. If it exists and `usedAt` is set → **reuse**: `DeleteMany({ userId })`, return `401 TOKEN_REUSED`. Otherwise → `401 UNAUTHORIZED`.
+5. After step 3's insert, check the old token still exists. Used tokens are never deleted except by a reuse cleanup or a logout of that family, so if it's gone, one of those ran between step 2 and the insert, and the new token was written after it. Delete the family and return `401 UNAUTHORIZED`. Without this, a thief whose replay won the race would keep a new token that the cleanup missed. Cost: one indexed read per refresh. Test: `TestRefreshReuseCleanupBetweenUseAndInsert`.
 
 The used token is marked, not deleted, so a later replay can still be recognized. The TTL index removes it after 30 days.
 
@@ -726,7 +727,7 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | 3 ✅ | Catalog API: list with filters/sort/pagination (no `q`), filters, product detail + offers, cover route | curl each; open a `cover.svg` in the browser |
 | 4 ✅ | Atlas Search: create index from JSON, `q` on `/api/products`, `/api/search/autocomplete` | Typo query and partial query return the right product |
 | 5 ✅ | Auth part 1: users, register/login, JWT, middleware, `/me`, rate limit + tests for expired/revoked | `go test ./internal/auth/...` green; curl register → me |
-| 6 | Auth part 2: refresh rotation, reuse detection, logout, TTL indexes + tests | Tests for rotation and reuse green |
+| 6 ✅ | Auth part 2: refresh rotation, reuse detection, logout, TTL indexes + tests | Tests for rotation and reuse green |
 | 7 | Homepage: layout endpoint, registry, 6 block services, `?fail=1` | Each block id returns data; `?fail=1` returns 503 |
 | 8 | Cart API: quote, get, put, delete, merge | curl flow: merge → put → get shows live prices |
 | 9 | Orders: reserve transaction with expiry-aware claim, simulated pay, cleanup job, list/detail, `claim_integration_test.go` | `go test ./internal/orders/...` green (unit only); `go test -tags integration ./internal/orders/...` → all 4 integration tests green; decline puts stock back and recounts immediately |
@@ -761,10 +762,13 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Search `q` length | Trimmed, capped at 100 chars (`400` above). Fuzzy matching cost grows with every term, and no product name is that long. |
 | Where `Searcher` lives | `products.Searcher` interface, implemented by `search.Service`. `search` imports `products` (for `ListQuery`, `ToCard`), so the interface has to sit in `products` to avoid an import cycle. |
 | Unknown errors | `httpx.WriteError` logs them and returns `500 INTERNAL "Something went wrong"`, so driver messages never reach the browser. |
-| Refresh token in phase 5 | Register and login already return and store a refresh token (hash only, new `familyId` per login), because API.md promises it. `/refresh` rotation, reuse detection and logout come in phase 6. |
+| Refresh token in phase 5 | Register and login already return and store a refresh token (hash only, new `familyId` per login), because API.md promises it. `/refresh` rotation, reuse detection and logout were added in phase 6. |
 | Auth rate limit | One `httprate` limiter shared by `/register` and `/login`: 10 per minute per IP across both, not per route. `/me` is not limited: the client calls it on every protected page and in the header, and it already needs a valid token. `/refresh` (phase 6) gets its own, higher limiter, because every open tab refreshes every 15 minutes and must not be blocked by failed logins from the same IP. The key is `r.RemoteAddr` after our `ClientIP` middleware, not httprate's `KeyByRealIP`, which trusts headers the client sets. |
 | Login timing | For an unknown email, login still runs one bcrypt compare against a dummy hash, so the response time doesn't reveal whether the email has an account. |
 | Auth errors in the service | The service returns plain errors (`ErrTokenExpired`, `ValidationError`, …) and `auth.toHTTP` maps them to API.md codes, so the service never imports `net/http`. |
+| Logout deletes the refresh family | Logout deletes every refresh token with the given token's `familyId` (and the caller's `userId`), not just that one token. If a thief rotated a stolen copy first, their newer token is in the same family, so logout ends it too. Other logins (other families) stay signed in. Same cost: one lookup, one `DeleteMany`. |
+| Refresh write order | `/refresh` marks the old token used (and sets `replacedBy` to an id picked in advance) before inserting the new one, since the `userId` is only known after that first atomic step. If the insert fails, the user has to log in again. Rare, and safe. |
+| `/refresh` rate limit | 60 per minute per IP, own counter. Each tab refreshes about once per 15 minutes, so this only stops floods. |
 | `golang.org/x/crypto` version | Pinned at v0.54. Newer versions need Go 1.26, which would raise the `go` line in go.mod and the toolchain the Dockerfile needs. |
 
 ## 12. Future improvements

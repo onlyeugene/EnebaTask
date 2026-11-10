@@ -85,3 +85,46 @@ func TestMeNotRateLimited(t *testing.T) {
 		}
 	}
 }
+
+func TestRefreshAndLogoutRoutes(t *testing.T) {
+	env := newTestEnv(t)
+	router := NewHandler(env.svc).Routes()
+	s := env.register(t, "eugene@example.com")
+	body := `{"refreshToken":"` + s.RefreshToken + `"}`
+
+	if status, _ := serve(t, router, "POST", "/refresh", "", body); status != 200 {
+		t.Fatalf("first refresh: status %d, want 200", status)
+	}
+	if status, code := serve(t, router, "POST", "/refresh", "", body); status != 401 || code != "TOKEN_REUSED" {
+		t.Errorf("reused refresh: %d %s, want 401 TOKEN_REUSED", status, code)
+	}
+	if status, code := serve(t, router, "POST", "/refresh", "", `{"refreshToken":"nope"}`); status != 401 || code != "UNAUTHORIZED" {
+		t.Errorf("unknown refresh: %d %s, want 401 UNAUTHORIZED", status, code)
+	}
+
+	fresh := env.register(t, "other@example.com")
+	logoutBody := `{"refreshToken":"` + fresh.RefreshToken + `"}`
+	if status, code := serve(t, router, "POST", "/logout", "", logoutBody); status != 401 || code != "UNAUTHORIZED" {
+		t.Errorf("logout without token: %d %s, want 401 UNAUTHORIZED", status, code)
+	}
+	if status, _ := serve(t, router, "POST", "/logout", fresh.AccessToken, logoutBody); status != 204 {
+		t.Errorf("logout: status %d, want 204", status)
+	}
+	if status, code := serve(t, router, "GET", "/me", fresh.AccessToken, ""); status != 401 || code != "TOKEN_REVOKED" {
+		t.Errorf("/me after logout: %d %s, want 401 TOKEN_REVOKED", status, code)
+	}
+}
+
+// Failed logins from one IP must not stop a signed-in tab on the same IP from refreshing.
+func TestRefreshHasItsOwnRateLimit(t *testing.T) {
+	env := newTestEnv(t)
+	router := NewHandler(env.svc).Routes()
+	s := env.register(t, "eugene@example.com")
+
+	for i := 0; i < 10; i++ {
+		serve(t, router, "POST", "/login", "", `{"email":"nobody@example.com","password":"wrong-pass1"}`)
+	}
+	if status, _ := serve(t, router, "POST", "/refresh", "", `{"refreshToken":"`+s.RefreshToken+`"}`); status != 200 {
+		t.Errorf("refresh after login limit used up: status %d, want 200", status)
+	}
+}

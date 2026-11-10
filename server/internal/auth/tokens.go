@@ -47,7 +47,7 @@ func parseAccess(secret []byte, issuer, token string, now time.Time) (Claims, er
 	if err != nil || claims.ID == "" {
 		return Claims{}, ErrTokenInvalid
 	}
-	return Claims{UserID: userID, JTI: claims.ID}, nil
+	return Claims{UserID: userID, JTI: claims.ID, ExpiresAt: claims.ExpiresAt.Time}, nil
 }
 
 // newRefreshToken returns 32 random bytes as base64url (sent to the client once) and its sha256 hex

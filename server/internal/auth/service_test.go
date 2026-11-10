@@ -55,12 +55,64 @@ func (m *memUsers) ByID(_ context.Context, id bson.ObjectID) (User, error) {
 type memRefresh struct {
 	mu     sync.Mutex
 	tokens []RefreshToken
+	// beforeInsert, if set, runs once just before the next Insert. Tests use it to make
+	// another request land between Refresh's atomic Use and its Insert.
+	beforeInsert func()
 }
 
 func (m *memRefresh) Insert(_ context.Context, t RefreshToken) error {
+	if h := m.beforeInsert; h != nil {
+		m.beforeInsert = nil
+		h()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tokens = append(m.tokens, t)
+	return nil
+}
+
+// Use holds the lock for both the check and the write, like the atomic FindOneAndUpdate.
+func (m *memRefresh) Use(_ context.Context, hash string, now time.Time, replacedBy bson.ObjectID) (RefreshToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, t := range m.tokens {
+		if t.TokenHash == hash && t.UsedAt == nil && t.ExpiresAt.After(now) {
+			m.tokens[i].UsedAt, m.tokens[i].ReplacedBy = &now, &replacedBy
+			return t, nil
+		}
+	}
+	return RefreshToken{}, ErrRefreshNotFound
+}
+
+func (m *memRefresh) ByHash(_ context.Context, hash string) (RefreshToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.tokens {
+		if t.TokenHash == hash {
+			return t, nil
+		}
+	}
+	return RefreshToken{}, ErrRefreshNotFound
+}
+
+func (m *memRefresh) DeleteUser(_ context.Context, userID bson.ObjectID) error {
+	return m.deleteWhere(func(t RefreshToken) bool { return t.UserID == userID })
+}
+
+func (m *memRefresh) DeleteFamily(_ context.Context, userID, familyID bson.ObjectID) error {
+	return m.deleteWhere(func(t RefreshToken) bool { return t.UserID == userID && t.FamilyID == familyID })
+}
+
+func (m *memRefresh) deleteWhere(match func(RefreshToken) bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.tokens[:0]
+	for _, t := range m.tokens {
+		if !match(t) {
+			kept = append(kept, t)
+		}
+	}
+	m.tokens = kept
 	return nil
 }
 
@@ -73,6 +125,11 @@ func (m *memRevoked) IsRevoked(_ context.Context, jti string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.ids[jti], nil
+}
+
+func (m *memRevoked) Revoke(_ context.Context, jti string, _ bson.ObjectID, _ time.Time) error {
+	m.revoke(jti)
+	return nil
 }
 
 func (m *memRevoked) revoke(jti string) {
@@ -247,5 +304,189 @@ func TestForgedAccessTokens(t *testing.T) {
 				t.Errorf("got %v, want ErrTokenInvalid", err)
 			}
 		})
+	}
+}
+
+func TestRefreshRotation(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	a := env.register(t, "eugene@example.com")
+
+	*env.clock = env.clock.Add(time.Minute) // so the new access token differs from the old one
+	b, err := env.svc.Refresh(ctx, a.RefreshToken)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if b.RefreshToken == a.RefreshToken || b.AccessToken == a.AccessToken {
+		t.Error("refresh must return a new pair")
+	}
+	if _, err := env.svc.Authenticate(ctx, b.AccessToken); err != nil {
+		t.Errorf("new access token: %v", err)
+	}
+
+	// The old token is kept, marked used, and points at its successor in the same family.
+	old, _ := env.refresh.ByHash(ctx, hashToken(a.RefreshToken))
+	next, _ := env.refresh.ByHash(ctx, hashToken(b.RefreshToken))
+	if old.UsedAt == nil || old.ReplacedBy == nil || *old.ReplacedBy != next.ID {
+		t.Errorf("old token must be marked used and point at the new one: %+v", old)
+	}
+	if next.FamilyID != old.FamilyID {
+		t.Error("rotation must keep the familyId")
+	}
+
+	// The new refresh token works in turn.
+	if _, err := env.svc.Refresh(ctx, b.RefreshToken); err != nil {
+		t.Errorf("refresh with the new token: %v", err)
+	}
+}
+
+func TestRefreshReuseSignsOutEverySession(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	a := env.register(t, "eugene@example.com")
+	other, err := env.svc.Login(ctx, "eugene@example.com", "hunter22!") // a second device
+	if err != nil {
+		t.Fatal(err)
+	}
+	stranger := env.register(t, "stranger@example.com")
+
+	b, err := env.svc.Refresh(ctx, a.RefreshToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.svc.Refresh(ctx, a.RefreshToken); !errors.Is(err, ErrRefreshReused) {
+		t.Fatalf("second use of A: got %v, want ErrRefreshReused", err)
+	}
+	if _, err := env.svc.Refresh(ctx, b.RefreshToken); !errors.Is(err, ErrRefreshInvalid) {
+		t.Errorf("B after reuse: got %v, want ErrRefreshInvalid", err)
+	}
+	if _, err := env.svc.Refresh(ctx, other.RefreshToken); !errors.Is(err, ErrRefreshInvalid) {
+		t.Errorf("other session after reuse: got %v, want ErrRefreshInvalid", err)
+	}
+	if _, err := env.svc.Refresh(ctx, stranger.RefreshToken); err != nil {
+		t.Errorf("another user's session must survive: %v", err)
+	}
+}
+
+// Many parallel refreshes with one token: at most one gets a new pair, and since the losers
+// count as reuse, no refresh token survives. Zero winners is fine: if a loser's cleanup lands
+// before the winner's final check, the winner is refused too. Which one happens is up to timing.
+func TestRefreshParallelOnlyOneWins(t *testing.T) {
+	env := newTestEnv(t)
+	a := env.register(t, "eugene@example.com")
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	wins := 0
+	for range 10 {
+		wg.Go(func() {
+			if _, err := env.svc.Refresh(context.Background(), a.RefreshToken); err == nil {
+				mu.Lock()
+				wins++
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	if wins > 1 {
+		t.Errorf("%d refreshes succeeded, want at most 1", wins)
+	}
+	if n := len(env.refresh.tokens); n != 0 {
+		t.Errorf("%d refresh tokens survived the race, want 0", n)
+	}
+}
+
+func TestRefreshUnknownOrExpired(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	a := env.register(t, "eugene@example.com")
+
+	for _, tok := range []string{"", "not-a-real-token"} {
+		if _, err := env.svc.Refresh(ctx, tok); !errors.Is(err, ErrRefreshInvalid) {
+			t.Errorf("%q: got %v, want ErrRefreshInvalid", tok, err)
+		}
+	}
+	*env.clock = env.clock.Add(721 * time.Hour) // TTL is 720h
+	if _, err := env.svc.Refresh(ctx, a.RefreshToken); !errors.Is(err, ErrRefreshInvalid) {
+		t.Errorf("expired: got %v, want ErrRefreshInvalid", err)
+	}
+}
+
+func TestLogout(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	a := env.register(t, "eugene@example.com")
+	other, _ := env.svc.Login(ctx, "eugene@example.com", "hunter22!")
+
+	// A thief rotated a stolen copy of A before the user logs out with A: the thief's B
+	// is in the same family, so logout must end it too.
+	b, err := env.svc.Refresh(ctx, a.RefreshToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	claims, err := env.svc.Authenticate(ctx, a.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.svc.Logout(ctx, claims, a.RefreshToken); err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+
+	if _, err := env.svc.Authenticate(ctx, a.AccessToken); !errors.Is(err, ErrTokenRevoked) {
+		t.Errorf("access token after logout: got %v, want ErrTokenRevoked", err)
+	}
+	if _, err := env.svc.Refresh(ctx, b.RefreshToken); !errors.Is(err, ErrRefreshInvalid) {
+		t.Errorf("same-family token after logout: got %v, want ErrRefreshInvalid", err)
+	}
+	if _, err := env.svc.Refresh(ctx, other.RefreshToken); err != nil {
+		t.Errorf("the other session must survive logout: %v", err)
+	}
+}
+
+// Logout with someone else's refresh token deletes nothing of theirs.
+func TestLogoutIgnoresOtherUsersToken(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	me := env.register(t, "eugene@example.com")
+	victim := env.register(t, "victim@example.com")
+
+	claims, _ := env.svc.Authenticate(ctx, me.AccessToken)
+	if err := env.svc.Logout(ctx, claims, victim.RefreshToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.svc.Refresh(ctx, victim.RefreshToken); err != nil {
+		t.Errorf("victim's session must survive: %v", err)
+	}
+}
+
+// The narrow race: the winner marks A used, then, before it inserts B, a replay of A runs
+// the reuse cleanup. B is written after the cleanup, so without a check it would survive
+// and a thief who won the race would keep a 30-day session.
+func TestRefreshReuseCleanupBetweenUseAndInsert(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	a := env.register(t, "eugene@example.com")
+
+	var replayErr error
+	env.refresh.beforeInsert = func() {
+		_, replayErr = env.svc.Refresh(ctx, a.RefreshToken)
+	}
+	won, err := env.svc.Refresh(ctx, a.RefreshToken)
+
+	if !errors.Is(replayErr, ErrRefreshReused) {
+		t.Fatalf("replay: got %v, want ErrRefreshReused", replayErr)
+	}
+	if err == nil {
+		t.Error("winner must not get a pair once its chain was wiped")
+	}
+	// Counted before the next check, which would itself rotate and add a token.
+	if n := len(env.refresh.tokens); n != 0 {
+		t.Errorf("%d refresh tokens left for the user, want 0", n)
+	}
+	if won.RefreshToken != "" {
+		if _, err := env.svc.Refresh(ctx, won.RefreshToken); err == nil {
+			t.Error("winner's new refresh token must not work")
+		}
 	}
 }

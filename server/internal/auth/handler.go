@@ -50,6 +50,37 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	httpx.OK(w, session)
 }
 
+func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RefreshToken string `json:"refreshToken"`
+	}
+	if err := httpx.DecodeJSON(w, r, &body); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	tokens, err := h.svc.Refresh(r.Context(), body.RefreshToken)
+	if err != nil {
+		httpx.WriteError(w, r, toHTTP(err))
+		return
+	}
+	httpx.OK(w, tokens)
+}
+
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RefreshToken string `json:"refreshToken"`
+	}
+	if err := httpx.DecodeJSON(w, r, &body); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	if err := h.svc.Logout(r.Context(), ClaimsFrom(r.Context()), body.RefreshToken); err != nil {
+		httpx.WriteError(w, r, toHTTP(err))
+		return
+	}
+	httpx.NoContent(w)
+}
+
 func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	user, err := h.svc.Me(r.Context(), ClaimsFrom(r.Context()).UserID)
 	if err != nil {
@@ -78,6 +109,10 @@ func toHTTP(err error) error {
 		return httpx.NewError(http.StatusUnauthorized, httpx.CodeTokenRevoked, "Access token revoked")
 	case errors.Is(err, ErrTokenInvalid):
 		return httpx.NewError(http.StatusUnauthorized, httpx.CodeUnauthorized, "Invalid access token")
+	case errors.Is(err, ErrRefreshInvalid):
+		return httpx.NewError(http.StatusUnauthorized, httpx.CodeUnauthorized, "Invalid or expired refresh token")
+	case errors.Is(err, ErrRefreshReused):
+		return httpx.NewError(http.StatusUnauthorized, httpx.CodeTokenReused, "Refresh token already used; all sessions were signed out")
 	}
 	return err
 }
