@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"eugene/internal/auth"
 	"eugene/internal/keys"
 	"eugene/internal/platform/config"
 	"eugene/internal/platform/db"
@@ -46,9 +47,20 @@ func main() {
 		slog.Warn("search index", "err", err)
 	}
 
+	authSvc, err := auth.NewService(auth.NewMongoUsers(database), auth.NewMongoRefresh(database), auth.NewMongoRevoked(database),
+		auth.Settings{
+			Secret: cfg.JWTSecret, Issuer: cfg.JWTIssuer,
+			AccessTTL: cfg.AccessTokenTTL, RefreshTTL: cfg.RefreshTokenTTL, BcryptCost: cfg.BcryptCost,
+		}, time.Now)
+	if err != nil {
+		slog.Error("auth", "err", err)
+		os.Exit(1)
+	}
+
 	keyRepo := keys.NewMongoRepo(database)
 	searchSvc := search.NewService(search.NewMongoRepo(database))
 	h := handlers{
+		auth:     auth.NewHandler(authSvc),
 		products: products.NewHandler(products.NewService(products.NewMongoRepo(database), keyRepo, time.Now), searchSvc),
 		search:   search.NewHandler(searchSvc),
 	}
