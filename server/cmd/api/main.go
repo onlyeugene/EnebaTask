@@ -10,8 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	"eugene/internal/keys"
 	"eugene/internal/platform/config"
 	"eugene/internal/platform/db"
+	"eugene/internal/products"
 )
 
 func main() {
@@ -38,9 +40,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	keyRepo := keys.NewMongoRepo(database)
+	h := handlers{
+		products: products.NewHandler(products.NewService(products.NewMongoRepo(database), keyRepo, time.Now)),
+	}
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           newRouter(cfg, client),
+		Handler:           newRouter(cfg, client, h),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -138,33 +138,9 @@ func (d *dataset) addProduct(rng *rand.Rand, now time.Time, p products.Product, 
 		o.Stock = n
 		offers = append(offers, o)
 	}
-	summarize(&p, offers)
+	products.Summarize(&p, offers)
 	d.offers = append(d.offers, offers...)
 	d.products = append(d.products, p)
-}
-
-// summarize sets minPriceCents, discountPct, offerCount and inStock from the offers.
-// The purchase transaction (phase 9) must use the same rules when it recounts.
-func summarize(p *products.Product, offers []products.Offer) {
-	p.MinPriceCents, p.OfferCount, p.DiscountPct, p.InStock = nil, 0, 0, false
-	for _, o := range offers {
-		if !o.Active || o.Stock == 0 {
-			continue
-		}
-		p.OfferCount++
-		if p.MinPriceCents == nil || o.PriceCents < *p.MinPriceCents {
-			price := o.PriceCents
-			p.MinPriceCents = &price
-		}
-	}
-	if p.MinPriceCents == nil {
-		return
-	}
-	p.InStock = true
-	// Only a price below MSRP counts as a discount; gift cards above face value show 0%.
-	if saved := p.OriginalPriceCents - *p.MinPriceCents; saved > 0 {
-		p.DiscountPct = int(saved * 100 / p.OriginalPriceCents)
-	}
 }
 
 // pickPlatformRegion leans toward Steam, like the real store. Steam keys are mostly global;
