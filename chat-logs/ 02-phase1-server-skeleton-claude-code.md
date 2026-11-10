@@ -756,3 +756,410 @@ Three things differ from your wording or needed a call:
 - Routes that need login. Cart and orders mix public and logged-in routes.
   Each feature applies RequireAuth inside its own Routes(), and the handler
   receives RequireAuth from main.go.
+
+❯ <ide_opened_file>The user opened the file /Users/onlyeugene/Desktop/Eneba
+Marketplace/chat-logs/ 02-phase1-server-skeleton-claude-code.md in the IDE.
+This may or may not be related to the current task.</ide_opened_file>
+
+❯ explain the riskiest part of this phase and what would break first.
+
+⏺ I'll check which chi version is installed, since its RealIP behavior matters
+to the answer.
+⏺ Bash(grep chi go.mod; sed -n '1,200p' $(go env
+GOMODCACHE)/github.com/go-chi/chi/v5@\*/middleware/realip.go | grep -nE
+'Header.Get|Split|func realIP' )
+⎿  (No output)
+
+⏺ Bash(sed -n '39,60p' $(go env
+GOMODCACHE)/github.com/go-chi/chi/v5@v5.5.0/middleware/realip.go)
+⎿  (No output)
+
+⏺ The riskiest part: chimw.RealIP
+
+It's one line in routes.go (server/cmd/api/routes.go), and it causes no
+trouble in this phase. It becomes a hole in Phase 5.
+
+I checked chi v5.5.0's code. RealIP replaces the request's IP address with the
+first of these headers it finds: True-Client-IP, X-Real-IP, or the first
+entry in X-Forwarded-For. The client sets all three. Render adds the real IP
+to the end of X-Forwarded-For, but whatever the client put at the front stays
+there.
+
+What breaks: Phase 5 limits login to 10 tries per minute per IP. If that limit
+uses r.RemoteAddr, an attacker sends a new fake X-Real-IP with each request.
+Each request then looks like a new visitor, so they can guess passwords
+without limit.
+
+Nothing will warn you. Tests pass, curl works, and the logs look normal.
+That's why it ranks above the problems that fail loudly.
+
+Fix before Phase 5:
+
+1. Remove RealIP.
+2. Write a small middleware that takes the last entry of X-Forwarded-For.
+   That's the one Render's proxy added, so the client can't fake it.
+3. Use that IP only when APP_ENV=production, and use RemoteAddr locally.
+4. Write a test that sends a fake header and checks that the limit still
+   applies.
+
+What breaks first: startup on Render
+
+The server pings Mongo at startup and exits if the ping fails (connect.go
+(server/internal/platform/db/connect.go)). That's on purpose, but on Render it
+has one common failure. If Atlas Network Access doesn't allow 0.0.0.0/0, the
+ping times out after 10 seconds. The process then exits with code 1 and Render
+restarts it, over and over, so /healthz never passes and the deploy fails.
+
+PLAN.md section 7 mentions the allow list, but nothing checks it before Phase 16. The log shows mongo ping: ... server selection timeout, which doesn't say
+"IP not allowed". Worth a line in the deploy notes.
+
+Locally, the first break is smaller. godotenv.Load() looks for .env in the
+folder you run from, and quietly does nothing if it's missing. If you run go
+run ./server/cmd/api from the repo root, the server reports MONGODB_URI is
+required, though the file exists. air and the README both run from server/, so
+you only hit this if you start the server some other way. A one-line fix is
+to log "no .env found, using process env" when the load fails in development.
+
+Smaller risk, for completeness
+
+recoverer.go (server/internal/platform/middleware/recoverer.go) writes a 500
+error body after a panic. If the handler has already started its response,
+that error is added to the end of a half-written body, and the browser gets
+broken JSON. Nothing in Phase 1 can trigger it. Handlers that stream data
+could.
+
+I haven't changed anything. Want me to fix the RealIP issue now, or log it in
+PLAN.md and fix it in Phase 5?
+
+❯ fix the realip issue now, in this phase:
+
+1. remove chimw.realip
+2. add a small middleware that uses the last entry of x-forwarded-for when
+   app_env=production, and r.remoteaddr otherwise
+3. add a test that sends a fake x-forwarded-for and x-real-ip and checks the
+   ip we use doesn't change also add the "no .env found, using process env" log
+   line in development. add the atlas 0.0.0.0/0 check to the deploy notes in
+   plan.md, and add the recoverer partial-response issue to future improvements.
+
+⏺ I'll write the middleware and its test, then wire it in, then do the config
+log and the PLAN.md notes.
+
+⏺ Write(internal/platform/middleware/clientip.go)
+⎿  Wrote 48 lines to internal/platform/middleware/clientip.go
+1 package middleware
+2
+3 import (
+4 "net"
+5 "net/http"
+6 "strings"
+7 )
+8
+9 // ClientIP sets r.RemoteAddr to the caller's IP, which the logg
+er and the
+… +39 lines (ctrl+o to expand)
+
+⏺ Write(internal/platform/middleware/clientip_test.go)
+⎿  Wrote 73 lines to internal/platform/middleware/clientip_test.go
+1 package middleware
+2
+3 import (
+4 "net/http"
+5 "net/http/httptest"
+6 "testing"
+7 )
+8
+9 func TestClientIP(t \*testing.T) {
+10 tests := []struct {
+… +63 lines (ctrl+o to expand)
+
+⏺ Update(cmd/api/routes.go)
+⎿  Added 5 lines, removed 3 lines
+18 func newRouter(cfg config.Config, client \*mongo.Client) http.Ha
+ndler {
+19 r := chi.NewRouter()
+20  
+ 21 - // Order matters: request id first so the logger can print it
+-; recoverer  
+ 22 - // inside the logger so a panic is still logged as a 500.  
+ 21 + // Order matters: request id and client IP first so the logge
++r can print them;  
+ 22 + // recoverer inside the logger so a panic is still logged as
++a 500.  
+ 23 + // Not chimw.RealIP: it trusts X-Real-IP and the first X-Forw
++arded-For entry,  
+ 24 + // which any client can set, so per-IP rate limits could be d
++odged.  
+ 25 r.Use(chimw.RequestID)
+24 - r.Use(chimw.RealIP)  
+ 26 + r.Use(middleware.ClientIP(!cfg.IsDev()))  
+ 27 r.Use(middleware.Logger)
+28 r.Use(middleware.Recoverer)
+29 r.Use(middleware.CORS(cfg.CORSOrigins))
+
+⏺ Update(internal/platform/middleware/logger.go)
+⎿  Added 1 line
+18 slog.Info("request",
+19 "method", r.Method,
+20 "path", r.URL.Path,
+21 + "ip", r.RemoteAddr,  
+ 22 "status", ww.Status(),
+23 "bytes", ww.BytesWritten(),
+24 "duration_ms", time.Since(start).Milliseconds(),
+
+⏺ Update(internal/platform/config/config.go)
+⎿  Added 6 lines, removed 1 line
+30 // Load reads .env if present (local dev), then the process env
+.
+31 // godotenv never overrides vars that are already set, so on Re
+nder the dashboard values win.
+32 func Load() (Config, error) {
+33 - \_ = godotenv.Load()  
+ 33 + envErr := godotenv.Load()  
+ 34  
+ 35 var errs []error
+36 + // A missing file is normal (Render, Docker); a broken one is + a mistake worth stopping for.  
+ 37 + if envErr != nil && !errors.Is(envErr, fs.ErrNotExist) {  
+ 38 + errs = append(errs, fmt.Errorf(".env: %w", envErr))  
+ 39 + }  
+ 40 +  
+ 41 c := Config{
+42 AppEnv: getOr("APP_ENV", "development"),
+43 Port: getOr("PORT", "8080"),
+
+⏺ Update(internal/platform/config/config.go)
+⎿  Added 5 lines
+57 }
+58 c.BcryptCost = cost
+59  
+ 60 + // Only in dev: a missing .env there usually means the server + was started from the wrong folder.  
+ 61 + if errors.Is(envErr, fs.ErrNotExist) && c.IsDev() {  
+ 62 + slog.Info("no .env found, using process env")  
+ 63 + }  
+ 64 +  
+ 65 if c.AppEnv != "development" && c.AppEnv != "production" {
+66 errs = append(errs, fmt.Errorf("APP_ENV must be development
+or production, got %q", c.AppEnv))
+67 }
+
+⏺ Update(internal/platform/config/config.go)
+⎿  Added 2 lines
+3 import (
+4 "errors"
+5 "fmt"
+6 + "io/fs"  
+ 7 + "log/slog"  
+ 8 "os"
+9 "strconv"
+10 "strings"
+
+⏺ Those diagnostics came before the import edit, which was the last one. Now the
+PLAN.md notes.
+
+⏺ Update(~/Desktop/Eneba Marketplace/PLAN.md)
+⎿  Added 2 lines
+627  
+ 628 Deploy notes:
+629 - Atlas network access must allow `0.0.0.0/0`, because Render'
+s free tier has no fixed outbound IP. The DB user has a strong
+password and access only to these two dbs.
+630 +- **Check before the first Render deploy:** Atlas → Security → + Network Access lists `0.0.0.0/0` as Active. If it doesn't, th
++e startup ping times out, the API exits with code 1, and Rende
++r restarts it in a loop. The log only says `mongo ping: ... se
+          +rver selection timeout`, not "IP not allowed".  
+ 631 +- **Check after the first Render deploy:** the `ip` field in t
++he request logs shows your own public IP, not Render's. `Clien
+          +tIP` trusts only the last `X-Forwarded-For` entry; if Render e
++ver puts a second proxy in front, that entry becomes the proxy
++'s IP and every user shares one rate limit bucket.  
+ 632 - Vercel preview deploys get random URLs. CORS lists only the
+production URL, so previews won't reach the API. Accepted.
+633 - Render free tier sleeps after ~15 min idle; the first reques
+t then takes up to a minute. Skeletons cover it; README says s
+o.
+634
+
+⏺ Update(~/Desktop/Eneba Marketplace/PLAN.md)
+⎿  Added 1 line
+771 5. **Live stock in listings.** Replace the cached `offers.stoc
+           k` with a count at read time, or a change stream that updates
+it, so store listings never undercount.
+772 6. **Seller accounts** that upload their own keys and set pric
+es.
+773 7. **Emailed keys** and order receipts.
+774 +8. **Panic after a partial response.** `Recoverer` writes a 50
++0 error body after a panic. If the handler had already started + writing, the headers are already sent, so the error JSON is a
++ppended to the half-written body and the client gets broken JS
++ON. No current handler streams, so it can't happen yet. Fix: w
++rap the writer, and if bytes were already sent, abort the conn
++ection (`panic(http.ErrAbortHandler)`) instead of writing more
++.
+
+⏺ Update(~/Desktop/Eneba Marketplace/PLAN.md)
+⎿  Added 1 line
+758 | Go module name | `eugene`. Short imports (`eugene/internal/.
+           ..`); the module is never imported by another repo. |
+759 | Loading `server/.env` | `joho/godotenv`. Go has no built-in
+loader, and `source .env` breaks on the `&` in the Mongo URI.
+It never overrides vars already set, so Render's values win. |
+760 | Where routes live | Each feature's `internal/<feature>/route
+           s.go` returns a `chi.Router`; `cmd/api/routes.go` mounts them
+under `/api` and holds only global middleware, 404/405 and `/h
+           ealthz` (too small to be a feature). A feature's paths sit nex
+t to its handlers, and `main.go` stays wiring only. |
+761 +| Client IP | Own `ClientIP` middleware, not `chimw.RealIP`. R
++ealIP trusts `X-Real-IP`, `True-Client-IP` and the first `X-Fo
+          +rwarded-For` entry, all of which the client sets, so a fake he
++ader per request would dodge the login rate limit. In producti
++on we take the last `X-Forwarded-For` entry (the one Render's
++proxy added); locally we ignore all those headers and use the
++TCP address. |  
+ 762 | Unknown errors | `httpx.WriteError` logs them and returns `5
+           00 INTERNAL "Something went wrong"`, so driver messages never
+reach the browser. |
+763  
+ 764 ## 12. Future improvements
+
+⏺ Bash(gofmt -l . ; go vet ./... && go test ./... 2>&1 | tail -8 && go test -run
+TestClientIP -v ./internal/platform/middleware/ 2>&1 | grep -E '^(===
+RUN|--- |ok|FAIL…)
+⎿  (No output)
+
+⏺ All four tests pass. Next I'll check the real server: a spoofed header should
+not change the logged IP, and starting from the wrong folder should print the
+new message.
+
+⏺ Bash(SP=/private/tmp/claude-501/-Users-onlyeugene-Desktop-Eneba-Marketplace/25
+a7d850-59fd-404b-90df-d01af813f5a5/scratchpad
+go build -o $SP/api-test ./cmd/api…)
+⎿  (No output)
+⎿  (timeout 1m)
+
+⏺ I replaced chimw.RealIP with a new ClientIP middleware and added the test, the
+.env message, and both PLAN.md notes. The tests pass, and a run of the real
+server confirms it: a request with a fake X-Forwarded-For: 1.1.1.1 and
+X-Real-IP: 2.2.2.2 was still logged with the real address, ::1.
+
+- Middleware (clientip.go (server/internal/platform/middleware/clientip.go)):
+  in production it uses the last entry of X-Forwarded-For. Otherwise it uses
+  r.RemoteAddr and ignores X-Forwarded-For, X-Real-IP and True-Client-IP. If
+  the header is missing or its last entry isn't a valid IP, it falls back to
+  the connection's own address. It writes the result back into r.RemoteAddr,
+  which is where Phase 5's rate limiter reads the IP.
+- Wiring (routes.go (server/cmd/api/routes.go)): ClientIP runs before the
+  logger. The logger now records an ip field on every request, so you can
+  check the address on Render.
+- Test (clientip_test.go
+  (server/internal/platform/middleware/clientip_test.go)): four cases:
+  - locally, all three fake headers are ignored;
+  - in production, the client's entries in X-Forwarded-For are ignored and
+    Render's last entry wins;
+  - in production with no header, it falls back to the connection's address;
+  - in production with a garbage last entry, it also falls back.
+- .env message (config.go (server/internal/platform/config/config.go)): in
+  development, a missing file now logs no .env found, using process env.
+  Starting the server from the repo root prints it, followed by the list of
+  missing variables. One thing I added: a .env that exists but can't be parsed
+  now stops the server, where before it was silently ignored.
+- PLAN.md:
+  - Deploy notes: check Atlas lists 0.0.0.0/0 before the first Render deploy,
+    including what the failure looks like in the log.
+  - Deploy notes: check after the first deploy that the logged ip is your own
+    address and not Render's.
+  - Section 11: a decision row for ClientIP.
+  - Future improvements: item 8 covers the recoverer partial-response issue,
+    with a fix.
+
+Still unconfirmed: I'm assuming Render puts exactly one proxy in front of the
+API. If there are two, the last X-Forwarded-For entry is a proxy's address,
+and all users share one rate limit. The after-deploy check in PLAN.md will
+show which case applies.
+
+❯ add this rule to claude.md: don't overengineer. build the simplest version
+that meets assignment.md
+and plan.md. no extra abstractions, configs or edge-case handling unless they
+protect security or
+data correctness. only test the important paths: auth, key claiming and
+checkout. if you think
+something extra is worth adding, ask me first instead of building it.
+
+⏺ Update(~/Desktop/Eneba Marketplace/CLAUDE.md)
+⎿  Added 1 line
+9 1. **Check against ASSIGNMENT.md before calling a feature done.
+** Name the assignment item it covers and what is still missing
+.
+10 2. **One phase at a time.** Each phase ends with a check that w
+as actually run. Mark the phase `✅` in PLAN.md when done.
+11 3. **Explain any decision that isn't obvious**, in a short code
+comment or in PLAN.md. The owner must be able to explain every
+line. Prefer plain code over clever code.
+12 +4. **Don't overengineer.** Build the simplest version that meet
++s ASSIGNMENT.md and PLAN.md. No extra abstractions, configs or
++edge-case handling unless they protect security or data correct
++ness. Only test the important paths: auth, key claiming and che
++ckout. If something extra seems worth adding, ask the owner fir
++st instead of building it.  
+ 13  
+ 14 ## Folder rules
+15
+
+⏺ I added the rule to CLAUDE.md as rule 4 under "Rules".
+
+Measured against it, Phase 1 already has a few things neither you nor PLAN.md
+asked for. I haven't removed them:
+
+- Error codes: errors.go (server/internal/platform/httpx/errors.go) lists
+  every code from API.md up front. The simple version adds each code in the
+  phase that first uses it.
+- Health check status: /healthz returns 503 {"status":"degraded","db":"down"}
+  when Mongo is down. PLAN.md only gives the success response, so a plain 500
+  would do.
+- 405 handler: routes.go returns a JSON body for wrong methods. chi's default
+  plain-text 405 would do.
+- Broken .env: the server now refuses to start if .env can't be parsed.
+  Before, it ignored the file.
+
+I'd keep three other things because they protect security or data:
+
+- the HTTP server timeouts, which stop slow clients from holding connections
+  open;
+- the clean shutdown, which lets in-flight requests and writes finish before
+  Render stops the process;
+- the ClientIP test, which you asked for and which covers the login rate
+  limit.
+
+Should I remove the four items above?
+
+❯ keep all of them, they're small and already work. the rule applies from phase
+2 onward.
+
+⏺ I'll note that in the rule so a later session doesn't flag the Phase 1 extras
+again.
+⏺ Update(~/Desktop/Eneba Marketplace/CLAUDE.md)
+⎿  Added 1 line, removed 1 line
+9 1. **Check against ASSIGNMENT.md before calling a feature done.
+** Name the assignment item it covers and what is still missing
+.
+10 2. **One phase at a time.** Each phase ends with a check that w
+as actually run. Mark the phase `✅` in PLAN.md when done.
+11 3. **Explain any decision that isn't obvious**, in a short code
+comment or in PLAN.md. The owner must be able to explain every
+line. Prefer plain code over clever code.
+12 -4. **Don't overengineer.** Build the simplest version that meet
+-s ASSIGNMENT.md and PLAN.md. No extra abstractions, configs or
+-edge-case handling unless they protect security or data correct
+-ness. Only test the important paths: auth, key claiming and che
+-ckout. If something extra seems worth adding, ask the owner fir
+-st instead of building it.  
+ 12 +4. **Don't overengineer.** Build the simplest version that meet
++s ASSIGNMENT.md and PLAN.md. No extra abstractions, configs or
++edge-case handling unless they protect security or data correct
++ness. Only test the important paths: auth, key claiming and che
++ckout. If something extra seems worth adding, ask the owner fir
++st instead of building it. Applies from Phase 2 on; the Phase 1 + extras stay as they are.  
+ 13  
+ 14 ## Folder rules
+15
+
+⏺ I'm keeping all four. Rule 4 in CLAUDE.md now says it applies from Phase 2 on
+and that the Phase 1 extras stay, so a later session won't flag them again.
+Phase 2 (indexes and seed data) is next when you're ready.

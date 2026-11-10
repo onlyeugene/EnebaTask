@@ -9,6 +9,7 @@ Read first: [ASSIGNMENT.md](ASSIGNMENT.md), [PLAN.md](PLAN.md), [API.md](API.md)
 1. **Check against ASSIGNMENT.md before calling a feature done.** Name the assignment item it covers and what is still missing.
 2. **One phase at a time.** Each phase ends with a check that was actually run. Mark the phase `✅` in PLAN.md when done.
 3. **Explain any decision that isn't obvious**, in a short code comment or in PLAN.md. The owner must be able to explain every line. Prefer plain code over clever code.
+4. **Don't overengineer.** Build the simplest version that meets ASSIGNMENT.md and PLAN.md. No extra abstractions, configs or edge-case handling unless they protect security or data correctness. Only test the important paths: auth, key claiming and checkout. If something extra seems worth adding, ask the owner first instead of building it. Applies from Phase 2 on; the Phase 1 extras stay as they are.
 
 ## Folder rules
 

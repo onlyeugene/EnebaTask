@@ -18,10 +18,12 @@ import (
 func newRouter(cfg config.Config, client *mongo.Client) http.Handler {
 	r := chi.NewRouter()
 
-	// Order matters: request id first so the logger can print it; recoverer
-	// inside the logger so a panic is still logged as a 500.
+	// Order matters: request id and client IP first so the logger can print them;
+	// recoverer inside the logger so a panic is still logged as a 500.
+	// Not chimw.RealIP: it trusts X-Real-IP and the first X-Forwarded-For entry,
+	// which any client can set, so per-IP rate limits could be dodged.
 	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
+	r.Use(middleware.ClientIP(!cfg.IsDev()))
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.CORS(cfg.CORSOrigins))

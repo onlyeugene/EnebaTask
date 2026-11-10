@@ -627,6 +627,8 @@ The API refuses to start if `JWT_SECRET` is shorter than 32 bytes or `MONGODB_UR
 
 Deploy notes:
 - Atlas network access must allow `0.0.0.0/0`, because Render's free tier has no fixed outbound IP. The DB user has a strong password and access only to these two dbs.
+- **Check before the first Render deploy:** Atlas → Security → Network Access lists `0.0.0.0/0` as Active. If it doesn't, the startup ping times out, the API exits with code 1, and Render restarts it in a loop. The log only says `mongo ping: ... server selection timeout`, not "IP not allowed".
+- **Check after the first Render deploy:** the `ip` field in the request logs shows your own public IP, not Render's. `ClientIP` trusts only the last `X-Forwarded-For` entry; if Render ever puts a second proxy in front, that entry becomes the proxy's IP and every user shares one rate limit bucket.
 - Vercel preview deploys get random URLs. CORS lists only the production URL, so previews won't reach the API. Accepted.
 - Render free tier sleeps after ~15 min idle; the first request then takes up to a minute. Skeletons cover it; README says so.
 
@@ -756,6 +758,7 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Go module name | `eugene`. Short imports (`eugene/internal/...`); the module is never imported by another repo. |
 | Loading `server/.env` | `joho/godotenv`. Go has no built-in loader, and `source .env` breaks on the `&` in the Mongo URI. It never overrides vars already set, so Render's values win. |
 | Where routes live | Each feature's `internal/<feature>/routes.go` returns a `chi.Router`; `cmd/api/routes.go` mounts them under `/api` and holds only global middleware, 404/405 and `/healthz` (too small to be a feature). A feature's paths sit next to its handlers, and `main.go` stays wiring only. |
+| Client IP | Own `ClientIP` middleware, not `chimw.RealIP`. RealIP trusts `X-Real-IP`, `True-Client-IP` and the first `X-Forwarded-For` entry, all of which the client sets, so a fake header per request would dodge the login rate limit. In production we take the last `X-Forwarded-For` entry (the one Render's proxy added); locally we ignore all those headers and use the TCP address. |
 | Unknown errors | `httpx.WriteError` logs them and returns `500 INTERNAL "Something went wrong"`, so driver messages never reach the browser. |
 
 ## 12. Future improvements
@@ -769,3 +772,4 @@ Not planned for the 3 days. Listed so the trade-offs are on record.
 5. **Live stock in listings.** Replace the cached `offers.stock` with a count at read time, or a change stream that updates it, so store listings never undercount.
 6. **Seller accounts** that upload their own keys and set prices.
 7. **Emailed keys** and order receipts.
+8. **Panic after a partial response.** `Recoverer` writes a 500 error body after a panic. If the handler had already started writing, the headers are already sent, so the error JSON is appended to the half-written body and the client gets broken JSON. No current handler streams, so it can't happen yet. Fix: wrap the writer, and if bytes were already sent, abort the connection (`panic(http.ErrAbortHandler)`) instead of writing more.

@@ -18,6 +18,7 @@ func Logger(next http.Handler) http.Handler {
 		slog.Info("request",
 			"method", r.Method,
 			"path", r.URL.Path,
+			"ip", r.RemoteAddr,
 			"status", ww.Status(),
 			"bytes", ww.BytesWritten(),
 			"duration_ms", time.Since(start).Milliseconds(),

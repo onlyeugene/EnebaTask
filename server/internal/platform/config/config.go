@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -30,9 +32,14 @@ func (c Config) IsDev() bool { return c.AppEnv == "development" }
 // Load reads .env if present (local dev), then the process env.
 // godotenv never overrides vars that are already set, so on Render the dashboard values win.
 func Load() (Config, error) {
-	_ = godotenv.Load()
+	envErr := godotenv.Load()
 
 	var errs []error
+	// A missing file is normal (Render, Docker); a broken one is a mistake worth stopping for.
+	if envErr != nil && !errors.Is(envErr, fs.ErrNotExist) {
+		errs = append(errs, fmt.Errorf(".env: %w", envErr))
+	}
+
 	c := Config{
 		AppEnv:      getOr("APP_ENV", "development"),
 		Port:        getOr("PORT", "8080"),
@@ -51,6 +58,11 @@ func Load() (Config, error) {
 		errs = append(errs, fmt.Errorf("BCRYPT_COST: %w", err))
 	}
 	c.BcryptCost = cost
+
+	// Only in dev: a missing .env there usually means the server was started from the wrong folder.
+	if errors.Is(envErr, fs.ErrNotExist) && c.IsDev() {
+		slog.Info("no .env found, using process env")
+	}
 
 	if c.AppEnv != "development" && c.AppEnv != "production" {
 		errs = append(errs, fmt.Errorf("APP_ENV must be development or production, got %q", c.AppEnv))
