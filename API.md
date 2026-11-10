@@ -20,11 +20,11 @@ Auth column: **—** public, **Bearer** needs `Authorization: Bearer <accessToke
 |---|---|---|
 | 400 | `BAD_REQUEST` | Malformed JSON, bad query param |
 | 401 | `UNAUTHORIZED`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `TOKEN_REUSED` | Missing/invalid/expired/revoked access token, bad credentials, refresh token used twice |
-| 402 | `PAYMENT_DECLINED` | Simulated card declined |
+| 402 | `PAYMENT_DECLINED` | Simulated card declined (body also carries `order`) |
 | 403 | `FORBIDDEN` | Order belongs to another user |
 | 404 | `NOT_FOUND` | |
 | 409 | `EMAIL_TAKEN`, `OUT_OF_STOCK`, `ORDER_NOT_PAYABLE` | State conflict |
-| 422 | `VALIDATION_FAILED` | Field rules broken |
+| 422 | `VALIDATION_FAILED` | Field rules broken, empty cart at checkout |
 | 429 | `RATE_LIMITED` | Auth endpoints, per IP |
 
 **Pagination**: `?page=1&pageSize=20` (max 60). Response carries `page`, `pageSize`, `total`.
@@ -222,10 +222,13 @@ Rules and errors:
 | GET | `/api/orders` | Bearer | — | `200 { items: Order[] }` (newest first, no key codes) |
 | GET | `/api/orders/{id}` | Bearer | — | `200 { order }` (key codes included when paid) |
 
-- `POST /api/orders` → `409 OUT_OF_STOCK { error, details: { offerId, available } }` if any line can't be reserved. Nothing is reserved in that case (the transaction rolls back).
+- `POST /api/orders` → `409 OUT_OF_STOCK { error, details: { offerId, available } }` if any line can't be reserved, including a line whose offer is gone (`available: 0`). Nothing is reserved in that case (the transaction rolls back). Empty cart → `422 VALIDATION_FAILED` with `fields: { cart: "is empty" }`.
+- Creating an order expires the user's other `pending_payment` orders and releases their keys, in the same transaction. Only the newest checkout holds keys; paying an older one → `409 ORDER_NOT_PAYABLE`.
+- Prices, names and sellers are copied into the order when it is created, so the order keeps showing what was paid.
 - Simulated card: any valid-looking number pays, **`4000 0000 0000 0002` is declined**. Card data is checked for format and then dropped; only `last4` is stored.
-- Decline releases the keys and marks the order `failed`. The cart is left as is, so the user can try again.
+- Card rules (`422 VALIDATION_FAILED` with `fields`): `cardNumber` 12–19 digits (spaces and dashes allowed), `expiry` `MM/YY` and not past its month, `cvc` 3–4 digits, `name` required, at most 100 chars. No Luhn check.
+- Decline → `402 { error: { code: "PAYMENT_DECLINED", … }, order }`, the order `failed`. The keys are released and stock recounted in the same request. The cart is left as is, so the user can try again.
 - `pay` on an order that is not `pending_payment` or past `reservedUntil` → `409 ORDER_NOT_PAYABLE`. Once `reservedUntil` passes, the order's keys can be claimed by other buyers right away, so a late payment is always refused and the order becomes `expired`.
-- `GET /api/orders` and `GET /api/orders/{id}` report a `pending_payment` order past `reservedUntil` as `expired`, even before the cleanup job has updated it.
-- A paid order clears the server cart.
-- Someone else's order → `404` (not 403, so order IDs can't be probed).
+- `GET /api/orders` and `GET /api/orders/{id}` report a `pending_payment` order past `reservedUntil` as `expired`, even before the cleanup job has updated it. The list has no paging.
+- A paid order removes its offers' lines from the server cart. A line added after the order was created stays.
+- Someone else's order, or an id that isn't valid → `404` (not 403, so order IDs can't be probed). This check runs before the card check.

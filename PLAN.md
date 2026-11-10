@@ -337,7 +337,7 @@ Why this is safe:
 
 **Step 2 — pay:** `POST /api/orders/{id}/pay` runs a second transaction:
 - Order must be `pending_payment`, owned by the user, and `reservedUntil > now`.
-- Success: `keys.UpdateMany({ orderId, status: "reserved", reservedUntil: { $gt: now } }, → sold)`. If `ModifiedCount` is less than the number of keys in the order, some were lost to expiry: abort, mark the order `expired`, return `409 ORDER_NOT_PAYABLE`. Otherwise copy codes into the order, `status: "paid"`, `soldCount += qty`, clear the cart. Then for each distinct `offerId` in the order: `refreshOfferStock` + `refreshProductSummary`.
+- Success: `keys.UpdateMany({ orderId, status: "reserved", reservedUntil: { $gt: now } }, → sold)`. If `ModifiedCount` is less than the number of keys in the order, some were lost to expiry: abort, mark the order `expired`, return `409 ORDER_NOT_PAYABLE`. Otherwise copy codes into the order, `status: "paid"`, `soldCount += qty`, remove the paid offers' lines from the cart. Then recount stock (see "Stock recount" in section 11).
 - Decline: `keys.UpdateMany({ orderId, status: "reserved" }, → available, unset orderId/reservedUntil)`, then for each `offerId`: `refreshOfferStock` + `refreshProductSummary`, `status: "failed"`.
 
 Both paths recount in the **same transaction**, so the store listing is accurate as soon as the response returns.
@@ -473,20 +473,20 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  └─ routes.go             # Routes(): /quote public; /, /items/{offerId}, /merge behind RequireAuth → mounted at /api/cart
 │  │  │
 │  │  ├─ orders/
-│  │  │  ├─ model.go              # Order, OrderItem
-│  │  │  ├─ repository.go         # OrderRepo interface
+│  │  │  ├─ model.go              # Order, Item, Payment, Card; View, ItemView (API shapes)
+│  │  │  ├─ repository.go         # Repository (orders + Transaction), Keys, Catalog, Carts interfaces
 │  │  │  ├─ repository_mongo.go
-│  │  │  ├─ service.go            # Reserve, Pay, List, Detail — transactions here
-│  │  │  ├─ service_test.go
-│  │  │  └─ claim_integration_test.go  # //go:build integration — 4 tests against eneba_test db
-│  │  │  ├─ payment.go            # SimulatePayment: format-check card, decline magic number
-│  │  │  ├─ cleanup.go            # background goroutine: expire stale pending_payment orders
+│  │  │  ├─ service.go            # Create, Pay, Get, List, expire, refreshStock — runs the transaction steps
+│  │  │  ├─ service_test.go       # card checks, expired-at-read-time, owner checks; no db
+│  │  │  ├─ claim_integration_test.go  # //go:build integration — 6 tests against eneba_test db
+│  │  │  ├─ payment.go            # checkCard (format only), simulate (decline magic number)
+│  │  │  ├─ cleanup.go            # RunCleanup goroutine + CleanupOnce: expire stale pending_payment orders
 │  │  │  ├─ handler.go
 │  │  │  └─ routes.go             # Routes(): /, /{id}, /{id}/pay, all behind RequireAuth → mounted at /api/orders
 │  │  │
 │  │  └─ keys/
 │  │     ├─ model.go              # Key (available | reserved | sold)
-│  │     ├─ repository.go         # KeyRepo interface; claimable() filter lives here
+│  │     ├─ repository.go         # Repository: CountClaimable, Claim, Sell, Codes, Release; claimable() filter lives here
 │  │     └─ repository_mongo.go
 │  │
 │  ├─ Dockerfile
@@ -596,7 +596,7 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 - Handlers never import the `repository_mongo.go` or the mongo driver directly. They call service methods only.
 - Services never import chi or net/http. They call repository interfaces only.
 - Repositories receive a `*mongo.Database` and return domain types. No HTTP concepts inside.
-- `keys/` has no service or handler — it is a dependency of `orders/`, which injects a `KeyRepo`.
+- `keys/` has no service or handler — it is a dependency of `orders/` (and of `products/`, `cart/` for live stock), which inject `keys.MongoRepo` behind their own small interfaces.
 - Each feature's `routes.go` has `func (h *Handler) Routes() chi.Router` with paths relative to its mount point. `cmd/api/routes.go` mounts them: `api.Mount("/auth", authHandler.Routes())`. A feature that needs auth on some routes takes the `RequireAuth` middleware as a handler dependency and applies it inside its own `Routes()`.
 - Search has no route under `/api/products`: chi can't mount two routers on one prefix, so the products handler takes a search interface and calls it when `q` is set.
 
@@ -730,13 +730,13 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | 6 ✅ | Auth part 2: refresh rotation, reuse detection, logout, TTL indexes + tests | Tests for rotation and reuse green |
 | 7 ✅ | Homepage: layout endpoint, registry, 6 block services, `?fail=1` | Each block id returns data; `?fail=1` returns 503 |
 | 8 ✅ | Cart API: quote, get, put, delete, merge | curl flow: merge → put → get shows live prices |
-| 9 | Orders: reserve transaction with expiry-aware claim, simulated pay, cleanup job, list/detail, `claim_integration_test.go` | `go test ./internal/orders/...` green (unit only); `go test -tags integration ./internal/orders/...` → all 4 integration tests green; decline puts stock back and recounts immediately |
+| 9 ✅ | Orders: reserve transaction with expiry-aware claim, simulated pay, cleanup job, list/detail, `claim_integration_test.go` | `go test ./internal/orders/...` green (unit only); `go test -tags integration ./internal/orders/...` → all 4 integration tests green (plus 2 more: decline then pay, and a new order replacing the user's pending one); decline puts stock back and recounts immediately |
 | 10 | Client skeleton: create-next-app (it refuses a folder with unknown files, so move `client/.env.example` aside and put it back after), Tailwind tokens, Metropolis font, `(shop)` layout with Header/Footer (server), Providers, `apiFetch` with single-flight refresh | Page renders with Eneba header and footer; demo disclaimer in footer |
 | 11 | Homepage client: `HomeBlocks`, hero, category row, product rails, `ProductCard` | Home matches screenshots; `?fail=<id>` breaks only one block |
 | 12 | Store + search (match `store.png`, `store2.png`): filter panel, sort, pagination in URL, header `SearchBox` with autocomplete | Typo in header → suggestions → Enter → results page |
 | 13 | Product page (match `product_details1–3.png`) + cart: offers table, add to cart, added-to-cart modal, guest Zustand cart, cart popover, cart page | Guest adds 2 items, reloads, cart is still there |
 | 14 | Auth UI: login/register (RHF + Zod, live password rules), `AccountMenu`, logout, merge on login (section 5b), `RequireAuth` | Guest cart survives login; same offer in both carts ends with the larger quantity; `/orders` redirects when logged out |
-| 15 | Checkout: stepper layout, create order, payment form, decline path, order + key page, order history | Full flow from home to key; decline card returns to cart with stock intact |
+| 15 | Checkout: stepper layout, create order, payment form, decline path, order + key page, order history. When pay returns `409 ORDER_NOT_PAYABLE`, reload the order with `GET /api/orders/{id}`: if it is already `paid`, show its keys instead of an error (the pay went through but its response was lost, e.g. a crash after commit or a dropped connection) | Full flow from home to key; decline card returns to cart with stock intact; a second pay on a paid order shows the keys, not an error |
 | 16 | Deploy: Dockerfile, Render service, Atlas `eneba_prod` seed + search index, Vercel project, CORS | Full flow works on the public URLs |
 | 17 | Polish + check: responsive pass, empty states, README (setup, decisions, limits), check every line of ASSIGNMENT.md | Every assignment item ticked in README |
 
@@ -777,6 +777,16 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | PUT doesn't cap at stock, merge does | `PUT` stores the number the user picked and the line shows `NOT_ENOUGH_STOCK`; changing it silently would hide that stock dropped. Merge caps, because there the user never picked the merged number. |
 | Cart size | 20 lines, 10 per line. Protects the db and bounds the offer lookup a public `quote` can trigger. Merge drops extra guest lines with reason `CART_FULL`. |
 | Repeated offer in a quote/merge body | `422`, not merged. The client keys its guest cart by `offerId`, so a repeat means a broken request. |
+| Who runs the transaction | `orders.Service` holds the steps (claim, sell, release, recount, save); `orders.Repository.Transaction(ctx, fn)` wraps `WithTransaction`. In driver v2 the `ctx` handed to `fn` carries the session, and every repo uses the same client, so keys, products, carts and orders writes made with that `ctx` all join one transaction. The service stays free of `mongo` imports, and each repo stays a plain set of reads and writes. |
+| Stock recount | After every claim, sale, release or expiry, `refreshStock` recounts **all** offers of each product in the order (not only the order's offers) from `keys`, then runs `products.Summarize` and saves `offers.stock` + the product summary. The summary (cheapest in-stock offer) depends on every offer, and the other offers' cached stock may be stale from an expired hold. A product has 2–4 offers, so this is a few small writes. |
+| Order snapshot | Prices, names and sellers are read from the cart's live offers before the transaction and copied into the order. Items are rebuilt at the start of every transaction run, so a retried run never keeps key ids from the failed run. |
+| Late payment | `Pay` checks `reservedUntil > now` before selling, and `Sell` only sells keys still held (`orderId`, `reserved`, future `reservedUntil`). If either fails, the transaction returns an error so nothing stays sold, and a second, small transaction marks the order `expired` and frees any keys it still owns. |
+| Pay order of checks | Owner (404) → card format (422) → order state (409) → simulated payment. A stranger gets 404 whatever card they send, so order ids can't be probed. |
+| Paid order and cart | Pay removes only the paid offers' lines (`$pull`), inside the pay transaction, instead of emptying the cart. A line added in another tab after checkout started is kept. |
+| Card check | Format only: 12–19 digits, `MM/YY` not past its month, 3–4 digit CVC, a name. No Luhn check, because API.md promises "any valid-looking number pays" and testers type random digits. |
+| Order number | `ORD-` + 6 chars from `crypto/rand`, from a 32-letter alphabet without 0/O/1/I. About a billion values; a clash would hit the unique index and give that one request a 500. Not retried: rare enough not to matter. |
+| New order replaces pending ones | `Create` first expires the user's other `pending_payment` orders and releases their keys, in the same transaction, before claiming. Without it, a user who goes back from checkout and starts again holds two sets of keys, and on low stock their own first order makes the second fail with `OUT_OF_STOCK`. It also caps what one account can hold at one order's worth (20 lines × 10). Released first, so the new order can claim the same keys. If the user pays the old order in another tab at the same moment, both transactions write the same order and keys, so Mongo makes one retry: either the payment wins and the old order is no longer pending, or it is expired and the payment gets `409`. Test: `TestNewOrderReplacesUsersPendingOrder`. |
+| Cleanup job | `go ordersSvc.RunCleanup(ctx, time.Minute)` in `main.go`: runs once at start, then every minute, at most 100 orders per run, and stops with the shutdown `ctx`. Each order goes through the same `expire` as a late payment. |
 | `golang.org/x/crypto` version | Pinned at v0.54. Newer versions need Go 1.26, which would raise the `go` line in go.mod and the toolchain the Dockerfile needs. |
 
 ## 12. Future improvements
