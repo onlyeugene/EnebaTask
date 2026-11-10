@@ -16,7 +16,8 @@ Read first: [ASSIGNMENT.md](ASSIGNMENT.md), [PLAN.md](PLAN.md), [API.md](API.md)
 - `cmd/api/main.go` wires only: config → db → routes → cleanup job → ListenAndServe. No logic.
 - `cmd/seed/main.go` for the seed script. Data in `cmd/seed/data.go`.
 - `internal/` is grouped by feature: `auth`, `products`, `search`, `cart`, `orders`, `home`, `keys`.
-- Each feature has exactly: `model.go` (types), `repository.go` (interface), `repository_mongo.go` (Mongo implementation), `service.go` (business logic), `handler.go` (HTTP only). Tests live next to the file they test: `service_test.go`, not `auth_test.go`.
+- Each feature has exactly: `model.go` (types), `repository.go` (interface), `repository_mongo.go` (Mongo implementation), `service.go` (business logic), `handler.go` (HTTP only), `routes.go` (its chi routes). Tests live next to the file they test: `service_test.go`, not `auth_test.go`.
+- **Each feature owns its routes.** `internal/<feature>/routes.go` has `func (h *Handler) Routes() chi.Router` (exported so `cmd/api` can call it), with paths relative to the mount point. `cmd/api/routes.go` holds only: global middleware, NotFound/MethodNotAllowed, `/healthz`, and an `/api` router that mounts each feature: `api.Mount("/auth", authHandler.Routes())`. No top-level `routes/` folder.
 - **Handlers never call Mongo directly.** They call service methods only.
 - **Services never import chi or net/http.** They call repository interfaces only.
 - Shared infrastructure goes in `internal/platform/`: `config/`, `db/`, `httpx/`, `middleware/`. Platform packages never import feature packages.
@@ -34,6 +35,7 @@ Read first: [ASSIGNMENT.md](ASSIGNMENT.md), [PLAN.md](PLAN.md), [API.md](API.md)
 
 ## Working notes
 
+- Run the API locally with live reload: `cd server && air` (config in `server/.air.toml`, builds to `server/tmp/`). Install once with `go install github.com/air-verse/air@latest`. Without air: `go run ./cmd/api`.
 - API.md is the contract. Update it in the same phase as any endpoint change.
 - Money is integer cents everywhere. Never floats.
 - Client: no Next API routes, no rewrites, no data fetching in server components. Data views are client components using TanStack Query and `apiFetch`. Layouts, header shell, footer and static content stay server components.

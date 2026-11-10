@@ -22,7 +22,7 @@ MongoDB Atlas M0
 ```
 
 - The browser talks to the Go API directly. Next.js serves pages only: no API routes, no rewrites, no server-side data fetching.
-- Libraries: `go-chi/chi/v5`, `go-chi/cors`, `go-chi/httprate`, `go.mongodb.org/mongo-driver/v2`, `golang-jwt/jwt/v5`, `golang.org/x/crypto/bcrypt`. Client: Next.js (App Router), TanStack Query, Zustand, React Hook Form, Zod, lucide-react, Tailwind v4.
+- Libraries: `go-chi/chi/v5`, `go-chi/cors`, `go-chi/httprate`, `go.mongodb.org/mongo-driver/v2`, `golang-jwt/jwt/v5`, `golang.org/x/crypto/bcrypt`, `joho/godotenv` (local `.env` only). Client: Next.js (App Router), TanStack Query, Zustand, React Hook Form, Zod, lucide-react, Tailwind v4.
 - Money is stored and sent as integer cents (EUR only). Floats can't hold 0.10 exactly; cents can.
 
 ---
@@ -387,7 +387,8 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 ├─ server/
 │  ├─ cmd/
 │  │  ├─ api/
-│  │  │  └─ main.go               # wire only: config → db → router → cleanup job → ListenAndServe
+│  │  │  ├─ main.go               # wire only: config → db → router → cleanup job → ListenAndServe
+│  │  │  └─ routes.go             # global middleware, 404/405, /healthz, mounts each feature under /api
 │  │  └─ seed/
 │  │     ├─ main.go               # entry: flags, db connect, call seed functions
 │  │     └─ data.go               # fake titles, sellers, block configs, cover palettes
@@ -417,7 +418,8 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  ├─ service.go            # Register, Login, Refresh, Logout — no Mongo calls here
 │  │  │  ├─ service_test.go       # in-memory repos + fake clock; all auth test cases
 │  │  │  ├─ middleware.go         # RequireAuth: verify sig → check jti → put userID in ctx
-│  │  │  └─ handler.go            # HTTP only: decode body, call service, write response
+│  │  │  ├─ handler.go            # HTTP only: decode body, call service, write response
+│  │  │  └─ routes.go             # Routes(): /register, /login, /refresh, /logout, /me → mounted at /api/auth
 │  │  │
 │  │  ├─ products/
 │  │  │  ├─ model.go              # Product, ProductCard, Offer, Seller
@@ -426,14 +428,16 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  ├─ service.go            # List, Filters, Detail — no Mongo calls here
 │  │  │  ├─ service_test.go
 │  │  │  ├─ cover.go              # deterministic SVG from name + palette (used by seed too)
-│  │  │  └─ handler.go            # /api/products, /api/products/{slug}, /api/products/{slug}/cover.svg
+│  │  │  ├─ handler.go            # list (hands ?q= to the search service), filters, detail, cover
+│  │  │  └─ routes.go             # Routes(): /, /filters, /{slug}, /{slug}/cover.svg → mounted at /api/products
 │  │  │
 │  │  ├─ search/
 │  │  │  ├─ model.go              # SearchResult, Suggestion
 │  │  │  ├─ repository.go         # SearchRepo interface (Atlas Search pipelines)
 │  │  │  ├─ repository_mongo.go
 │  │  │  ├─ service.go            # Search, Autocomplete
-│  │  │  └─ handler.go            # /api/products?q=, /api/search/autocomplete
+│  │  │  ├─ handler.go            # autocomplete only; ?q= on /api/products goes through products/handler.go
+│  │  │  └─ routes.go             # Routes(): /autocomplete → mounted at /api/search
 │  │  │
 │  │  ├─ home/
 │  │  │  ├─ model.go              # Block, Banner, CategoryItem
@@ -447,7 +451,8 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  │  ├─ deals.go
 │  │  │  │  ├─ new_releases.go
 │  │  │  │  └─ gift_cards.go
-│  │  │  └─ handler.go            # /api/homepage, /api/homepage/blocks/{id}
+│  │  │  ├─ handler.go            # layout, one block
+│  │  │  └─ routes.go             # Routes(): /, /blocks/{id} → mounted at /api/homepage
 │  │  │
 │  │  ├─ cart/
 │  │  │  ├─ model.go              # Cart, CartLine
@@ -455,7 +460,8 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  ├─ repository_mongo.go
 │  │  │  ├─ service.go            # Quote, Get, Upsert, Remove, Merge — no Mongo calls here
 │  │  │  ├─ service_test.go       # merge rules: same offer max qty, idempotent, capped
-│  │  │  └─ handler.go
+│  │  │  ├─ handler.go
+│  │  │  └─ routes.go             # Routes(): /quote public; /, /items/{offerId}, /merge behind RequireAuth → mounted at /api/cart
 │  │  │
 │  │  ├─ orders/
 │  │  │  ├─ model.go              # Order, OrderItem
@@ -466,7 +472,8 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  └─ claim_integration_test.go  # //go:build integration — 4 tests against eneba_test db
 │  │  │  ├─ payment.go            # SimulatePayment: format-check card, decline magic number
 │  │  │  ├─ cleanup.go            # background goroutine: expire stale pending_payment orders
-│  │  │  └─ handler.go
+│  │  │  ├─ handler.go
+│  │  │  └─ routes.go             # Routes(): /, /{id}, /{id}/pay, all behind RequireAuth → mounted at /api/orders
 │  │  │
 │  │  └─ keys/
 │  │     ├─ model.go              # Key (available | reserved | sold)
@@ -581,6 +588,8 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 - Services never import chi or net/http. They call repository interfaces only.
 - Repositories receive a `*mongo.Database` and return domain types. No HTTP concepts inside.
 - `keys/` has no service or handler — it is a dependency of `orders/`, which injects a `KeyRepo`.
+- Each feature's `routes.go` has `func (h *Handler) Routes() chi.Router` with paths relative to its mount point. `cmd/api/routes.go` mounts them: `api.Mount("/auth", authHandler.Routes())`. A feature that needs auth on some routes takes the `RequireAuth` middleware as a handler dependency and applies it inside its own `Routes()`.
+- Search has no route under `/api/products`: chi can't mount two routers on one prefix, so the products handler takes a search interface and calls it when `q` is set.
 
 **Client notes:**
 - `app/` page files are server components that render one view component from `features/`. No query calls or business logic in `app/`.
@@ -703,7 +712,7 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | # | Phase | Done when |
 |---|---|---|
 | 0 | Verify `.gitignore` covers `.env*` (except `.env.example`), `.next/`, `bin/` | All listed paths are ignored |
-| 1 | Server skeleton: `go mod init`, config, chi, CORS, logger, recoverer, JSON error helper, Mongo connect, `/healthz` | `curl localhost:8080/healthz` → `{"status":"ok","db":"ok"}` |
+| 1 ✅ | Server skeleton: `go mod init`, config, chi, CORS, logger, recoverer, JSON error helper, Mongo connect, `/healthz` | `curl localhost:8080/healthz` → `{"status":"ok","db":"ok"}` |
 | 2 | Indexes + seed: sellers, ~60 products (fictional titles), 2–4 offers each, 5–20 keys per offer, SVG covers, homepage blocks | `go run ./cmd/seed --reset`; docs visible in Atlas `eneba_dev` |
 | 3 | Catalog API: list with filters/sort/pagination (no `q`), filters, product detail + offers, cover route | curl each; open a `cover.svg` in the browser |
 | 4 | Atlas Search: create index from JSON, `q` on `/api/products`, `/api/search/autocomplete` | Typo query and partial query return the right product |
@@ -744,6 +753,10 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Signed-in cart | Server cart; guest cart merges in at login (section 5b). |
 | Declined payment | Release the keys, mark the order `failed`, cart stays so the user can check out again. |
 | Abandoned reservations | Expire on their own through `reservedUntil` in the claim filter. The background job is cleanup only (section 5). |
+| Go module name | `eugene`. Short imports (`eugene/internal/...`); the module is never imported by another repo. |
+| Loading `server/.env` | `joho/godotenv`. Go has no built-in loader, and `source .env` breaks on the `&` in the Mongo URI. It never overrides vars already set, so Render's values win. |
+| Where routes live | Each feature's `internal/<feature>/routes.go` returns a `chi.Router`; `cmd/api/routes.go` mounts them under `/api` and holds only global middleware, 404/405 and `/healthz` (too small to be a feature). A feature's paths sit next to its handlers, and `main.go` stays wiring only. |
+| Unknown errors | `httpx.WriteError` logs them and returns `500 INTERNAL "Something went wrong"`, so driver messages never reach the browser. |
 
 ## 12. Future improvements
 
