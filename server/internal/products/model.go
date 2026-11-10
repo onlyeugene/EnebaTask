@@ -75,7 +75,7 @@ type OfferWithSeller struct {
 
 // Sort values for GET /api/products (API.md).
 const (
-	SortRelevance   = "relevance" // only means something with q (phase 4); without q it falls back to bestselling
+	SortRelevance   = "relevance" // only means something with q; without q it falls back to bestselling
 	SortPriceAsc    = "price_asc"
 	SortPriceDesc   = "price_desc"
 	SortBestselling = "bestselling"
@@ -87,9 +87,14 @@ var Sorts = []string{SortRelevance, SortPriceAsc, SortPriceDesc, SortBestselling
 
 const MaxPageSize = 60
 
+// MaxQueryLen caps the search text. Fuzzy matching gets slower with every term, and no
+// product name is anywhere near this long.
+const MaxQueryLen = 100
+
 // ListQuery is a parsed and checked GET /api/products request.
 // Empty lists mean "no filter". Values in one list are OR'd; different lists are AND'd.
 type ListQuery struct {
+	Q                                 string // search text; when set, the list goes through Atlas Search
 	Types, Platforms, Regions, Genres []string
 	MinPriceCents, MaxPriceCents      *int64
 	InStockOnly                       bool

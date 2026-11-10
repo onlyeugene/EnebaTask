@@ -92,7 +92,10 @@ type Order = {
 
 | Method | Path | Auth | Response |
 |---|---|---|---|
-| GET | `/healthz` | — | `200 { "status": "ok", "db": "ok" }` (pings Mongo; Render health check) |
+| GET | `/healthz` | — | `200 { "status": "ok", "db": "ok", "search": "ok" }` (pings Mongo; Render health check) |
+
+- Search index missing or not queryable yet → still `200`, body `{ "status": "degraded", "db": "ok", "search": "missing" }`. Render restarts a service that fails its health check, and a restart can't fix a missing index, while everything except search still works.
+- Database unreachable → `503 { "status": "degraded", "db": "down" }`. The search check is skipped, since it needs the database.
 
 ## Auth
 
@@ -126,7 +129,7 @@ Rules:
 
 | Param | Example | Notes |
 |---|---|---|
-| `q` | `wichter` | When set, query goes through Atlas Search (typos + partial words). |
+| `q` | `skyforje` | When set, query goes through Atlas Search (typos + partial words). Trimmed; over 100 chars → `400`. |
 | `type` | `game,gift_card` | Comma list = OR within a filter, AND across filters |
 | `platform` | `steam,psn` | |
 | `region` | `global` | |
@@ -143,6 +146,10 @@ Any bad value (unknown `type`/`platform`/`region`, non-number price, `minPrice` 
 `/api/products/{slug}`: `offers[].stock` is counted live from the `keys` collection, and the product's `minPriceCents`, `offerCount`, `inStock`, `discountPct` are rebuilt from those live counts, so the page never shows a stale price. Inactive products → `404 NOT_FOUND`.
 
 `/api/products/{slug}/cover.svg` also sends `Content-Security-Policy: default-src 'none'` so an SVG opened in a tab can never run script.
+
+Search with `q`: each word matches whole (with typos: none for words of 1–3 letters, 1 for 4–6, 2 for 7+) or as the start of a word (`frost` → Frostline). A product matching any word is returned; matching more words ranks higher. Filters, `sort` and paging work the same as without `q`; `sort=relevance` is only used when `q` is set.
+
+`/api/search/autocomplete`: active products only, sold out included (`minPriceCents: null`). Every word must match the start of a word in the name (`neon dr` → Neon Drift); words of 5+ letters allow 1 typo (`thundr` → Thunderpeak). `q` under 2 chars → `{ "suggestions": [] }`; over 100 chars → `400`.
 
 The header search box calls `/api/search/autocomplete` as you type (debounced 200 ms, min 2 chars). Pressing Enter opens `/store?q=...`, which calls `/api/products?q=...`.
 

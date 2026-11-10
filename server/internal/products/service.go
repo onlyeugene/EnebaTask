@@ -26,7 +26,7 @@ func (s *Service) List(ctx context.Context, q ListQuery) (ListResult, error) {
 	}
 	items := make([]ProductCard, 0, len(found)) // [] not null in JSON when nothing matches
 	for _, p := range found {
-		items = append(items, toCard(p))
+		items = append(items, ToCard(p))
 	}
 	return ListResult{Items: items, Page: q.Page, PageSize: q.PageSize, Total: total}, nil
 }
@@ -151,7 +151,8 @@ func Summarize(p *Product, offers []Offer) {
 	}
 }
 
-func toCard(p Product) ProductCard {
+// ToCard builds the API card. Exported for the search feature, so search results look exactly like store results.
+func ToCard(p Product) ProductCard {
 	return ProductCard{
 		ID: p.ID.Hex(), Slug: p.Slug, Name: p.Name, Type: p.Type, Platform: p.Platform, Region: p.Region,
 		CoverURL:           "/api/products/" + p.Slug + "/cover.svg",
@@ -170,7 +171,7 @@ func toDetail(p Product) ProductDetail {
 		genres = []string{}
 	}
 	return ProductDetail{
-		ProductCard: toCard(p),
+		ProductCard: ToCard(p),
 		Description: p.Description, Genres: genres, Developer: p.Developer, Publisher: p.Publisher,
 		ReleaseDate: p.ReleaseDate.Format(time.DateOnly),
 		Activation:  p.Activation,

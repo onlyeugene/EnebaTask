@@ -14,14 +14,16 @@ import (
 	"eugene/internal/platform/httpx"
 	"eugene/internal/platform/middleware"
 	"eugene/internal/products"
+	"eugene/internal/search"
 )
 
 // handlers holds one HTTP handler per feature. main.go builds them; newRouter only mounts them.
 type handlers struct {
 	products *products.Handler
+	search   *search.Handler
 }
 
-func newRouter(cfg config.Config, client *mongo.Client, h handlers) http.Handler {
+func newRouter(cfg config.Config, database *mongo.Database, h handlers) http.Handler {
 	r := chi.NewRouter()
 
 	// Order matters: request id and client IP first so the logger can print them;
@@ -41,10 +43,11 @@ func newRouter(cfg config.Config, client *mongo.Client, h handlers) http.Handler
 		httpx.WriteError(w, r, httpx.NewError(http.StatusMethodNotAllowed, httpx.CodeBadRequest, "Method not allowed"))
 	})
 
-	r.Get("/healthz", healthz(client))
+	r.Get("/healthz", healthz(database))
 
 	r.Route("/api", func(api chi.Router) {
 		api.Mount("/products", h.products.Routes())
+		api.Mount("/search", h.search.Routes())
 	})
 
 	return r
@@ -52,14 +55,24 @@ func newRouter(cfg config.Config, client *mongo.Client, h handlers) http.Handler
 
 // healthz pings Mongo so Render's health check fails when the db is unreachable,
 // not just when the process is down.
-func healthz(client *mongo.Client) http.HandlerFunc {
+//
+// It also reports the Atlas Search index, because $search on a missing index returns no
+// results and no error, so a broken search looks like "nothing matches". A missing index
+// still returns 200: Render restarts a service that fails its health check, and a restart
+// can't create an index, while the rest of the API works fine without it. Only db down is 503.
+func healthz(database *mongo.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if err := db.Ping(ctx, client); err != nil {
+		if err := db.Ping(ctx, database.Client()); err != nil {
 			httpx.JSON(w, http.StatusServiceUnavailable, map[string]string{"status": "degraded", "db": "down"})
 			return
 		}
-		httpx.OK(w, map[string]string{"status": "ok", "db": "ok"})
+		// "missing" also covers an index that exists but can't be queried yet (still building).
+		if err := db.CheckSearchIndex(ctx, database); err != nil {
+			httpx.OK(w, map[string]string{"status": "degraded", "db": "ok", "search": "missing"})
+			return
+		}
+		httpx.OK(w, map[string]string{"status": "ok", "db": "ok", "search": "ok"})
 	}
 }

@@ -1,0 +1,25 @@
+{
+  "name": "products_search",
+  "definition": {
+    "mappings": {
+      "dynamic": false,
+      "fields": {
+        "_id": { "type": "objectId" },
+        "name": [
+          { "type": "string", "analyzer": "lucene.standard" },
+          { "type": "autocomplete", "tokenization": "edgeGram", "minGrams": 2, "maxGrams": 15, "foldDiacritics": true }
+        ],
+        "type": { "type": "token" },
+        "platform": { "type": "token" },
+        "region": { "type": "token" },
+        "genres": { "type": "token" },
+        "active": { "type": "boolean" },
+        "inStock": { "type": "boolean" },
+        "minPriceCents": { "type": "number" },
+        "discountPct": { "type": "number" },
+        "soldCount": { "type": "number" },
+        "createdAt": { "type": "date" }
+      }
+    }
+  }
+}

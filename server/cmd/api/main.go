@@ -14,6 +14,7 @@ import (
 	"eugene/internal/platform/config"
 	"eugene/internal/platform/db"
 	"eugene/internal/products"
+	"eugene/internal/search"
 )
 
 func main() {
@@ -40,14 +41,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Only a warning: the rest of the API works without search, and the seed creates the index.
+	if err := db.CheckSearchIndex(ctx, database); err != nil {
+		slog.Warn("search index", "err", err)
+	}
+
 	keyRepo := keys.NewMongoRepo(database)
+	searchSvc := search.NewService(search.NewMongoRepo(database))
 	h := handlers{
-		products: products.NewHandler(products.NewService(products.NewMongoRepo(database), keyRepo, time.Now)),
+		products: products.NewHandler(products.NewService(products.NewMongoRepo(database), keyRepo, time.Now), searchSvc),
+		search:   search.NewHandler(searchSvc),
 	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           newRouter(cfg, client, h),
+		Handler:           newRouter(cfg, database, h),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

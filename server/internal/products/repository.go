@@ -24,6 +24,12 @@ type Repository interface {
 	Offers(ctx context.Context, productID bson.ObjectID) ([]OfferWithSeller, error)
 }
 
+// Searcher runs a list query that has q set through Atlas Search. search.Service implements it.
+// It lives here, not in search, because search imports products; the other way round would be a cycle.
+type Searcher interface {
+	Search(ctx context.Context, q ListQuery) (ListResult, error)
+}
+
 // StockCounter gives live stock from the keys collection. keys.MongoRepo implements it.
 type StockCounter interface {
 	CountClaimable(ctx context.Context, offerIDs []bson.ObjectID, now time.Time) (map[bson.ObjectID]int, error)

@@ -189,7 +189,9 @@ TTL note: Mongo's TTL monitor runs about once a minute, so a doc can live a litt
 
 ### Atlas Search index `products_search` (on `products`)
 
-M0 allows 3 search indexes per cluster; we need one per database (2 total). Stored as JSON in `server/atlas/products_search.json` and created by the seed script with `SearchIndexes().CreateOne` (fallback: paste the JSON in the Atlas UI).
+M0 allows 3 search indexes per cluster; we need one per database (2 total). Stored as JSON in `server/atlas/products_search.json` (embedded into Go by `server/atlas/atlas.go`) and created by the seed script with `SearchIndexes().CreateOne`, or updated with `UpdateOne` if it exists; the seed then waits until Atlas reports it `READY` (fallback: paste the JSON in the Atlas UI). The API checks the index at startup and only logs a warning if it is missing, because `$search` on a missing index returns nothing and no error (checked on `eneba_dev`: 0 rows, nil error). `/healthz` also reports `"search": "ok" | "missing"` but stays `200` when only search is missing; only db down is `503`, so Render never restarts a server that otherwise works.
+
+`_id` is mapped so search sorts can end in `_id` like the plain list sorts, so pages never overlap.
 
 ```json
 {
@@ -198,6 +200,7 @@ M0 allows 3 search indexes per cluster; we need one per database (2 total). Stor
     "mappings": {
       "dynamic": false,
       "fields": {
+        "_id":  { "type": "objectId" },
         "name": [
           { "type": "string", "analyzer": "lucene.standard" },
           { "type": "autocomplete", "tokenization": "edgeGram", "minGrams": 2, "maxGrams": 15, "foldDiacritics": true }
@@ -224,22 +227,25 @@ M0 allows 3 search indexes per cluster; we need one per database (2 total). Stor
 { $search: {
     index: "products_search",
     compound: {
-      should: [
-        { text:         { query: q, path: "name", fuzzy: { maxEdits: 2, prefixLength: 1 }, score: { boost: { value: 3 } } } },
-        { autocomplete: { query: q, path: "name", fuzzy: { maxEdits: 1, prefixLength: 1 } } }
+      should: [ // two clauses per word of q (first 8 words)
+        { text:         { query: word, path: "name", fuzzy: { maxEdits: textEdits(word), prefixLength: 1 }, score: { boost: { value: 3 } } } },
+        { autocomplete: { query: word, path: "name", fuzzy: { maxEdits: prefixEdits(word), prefixLength: 1 } } }
       ],
       minimumShouldMatch: 1,
       filter: [ /* equals active/inStock, in type/platform/region/genres, range minPriceCents */ ]
     },
-    sort: /* only when sort != relevance, e.g. { minPriceCents: 1 } */,
+    sort: { inStock: -1, <score | minPriceCents | soldCount | …>, _id: 1 },
     count: { type: "total" }
 } },
-{ $project: { cover: 0 } }, { $skip }, { $limit }
+{ $facet: { items: [ { $skip }, { $limit }, { $project: { cover: 0 } } ],
+            meta:  [ { $replaceWith: "$$SEARCH_META" }, { $limit: 1 } ] } }
 ```
 
-`text` + fuzzy catches typos ("wichter" → "Witcher"-like titles). `autocomplete` catches partial words ("star" → "Starfall"). `prefixLength: 1` means the first letter must match, which cuts noise and speeds things up. Filters go in `filter` so they don't change the score. Total comes from `$$SEARCH_META.count.total` in a `$facet`.
+`text` + fuzzy catches typos ("skyforje" → "Skyforge"). `autocomplete` catches partial words ("frost" → "Frostline"). `prefixLength: 1` means the first letter must match, which cuts noise and speeds things up. Filters go in `filter` so they don't change the score. Total comes from `$$SEARCH_META.count.total` in the `$facet`. Relevance sorts on `{ $meta: "searchScore" }`, with the same in-stock-first and `_id` tie-break as the plain list.
 
-**Autocomplete** (`/api/search/autocomplete`): only the `autocomplete` clause, `filter active: true`, `$limit 8`, project a few fields.
+Typo allowance depends on word length (same steps as Elasticsearch's `AUTO`): `textEdits` is 0 for 1–3 letters, 1 for 4–6, 2 for 7+; `prefixEdits` is 1 from 5 letters, else 0. The first version used one `maxEdits: 2` for the whole query, and `q=star` returned 25 products: "star" is 2 edits from "steam", and the fuzzy prefix "star" matched "stea", so every Steam product came back. Atlas can't vary edits inside one clause, hence one clause per word.
+
+**Autocomplete** (`/api/search/autocomplete`): only the `autocomplete` clauses, in `must` (every word has to match, so "neon dr" narrows to Neon Drift), `filter active: true`, `$limit 8`, project a few fields. Under 2 chars returns `[]` without a query (the index's `minGrams` is 2).
 
 Without `q`, the store uses a normal `find` with the B-tree indexes above. Cheaper and exact.
 
@@ -394,7 +400,8 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │     ├─ data.go               # fake titles, sellers, block configs, cover palettes
 │  │     └─ build.go              # turns data.go into documents (fixed random seed, so runs repeat)
 │  ├─ atlas/
-│  │  └─ products_search.json     # Atlas Search index definition
+│  │  ├─ products_search.json     # Atlas Search index definition
+│  │  └─ atlas.go                 # go:embed of the JSON, used by db/search_index.go
 │  ├─ internal/
 │  │  ├─ platform/                # shared infrastructure, no business logic
 │  │  │  ├─ config/
@@ -715,7 +722,7 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | 1 ✅ | Server skeleton: `go mod init`, config, chi, CORS, logger, recoverer, JSON error helper, Mongo connect, `/healthz` | `curl localhost:8080/healthz` → `{"status":"ok","db":"ok"}` |
 | 2 ✅ | Indexes + seed: sellers, ~60 products (fictional titles), 2–4 offers each, 5–20 keys per offer, SVG covers, homepage blocks | `go run ./cmd/seed --reset`; docs visible in Atlas `eneba_dev` |
 | 3 ✅ | Catalog API: list with filters/sort/pagination (no `q`), filters, product detail + offers, cover route | curl each; open a `cover.svg` in the browser |
-| 4 | Atlas Search: create index from JSON, `q` on `/api/products`, `/api/search/autocomplete` | Typo query and partial query return the right product |
+| 4 ✅ | Atlas Search: create index from JSON, `q` on `/api/products`, `/api/search/autocomplete` | Typo query and partial query return the right product |
 | 5 | Auth part 1: users, register/login, JWT, middleware, `/me`, rate limit + tests for expired/revoked | `go test ./internal/auth/...` green; curl register → me |
 | 6 | Auth part 2: refresh rotation, reuse detection, logout, TTL indexes + tests | Tests for rotation and reuse green |
 | 7 | Homepage: layout endpoint, registry, 6 block services, `?fail=1` | Each block id returns data; `?fail=1` returns 503 |
@@ -749,6 +756,8 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Client IP | Own `ClientIP` middleware, not `chimw.RealIP`. RealIP trusts `X-Real-IP`, `True-Client-IP` and the first `X-Forwarded-For` entry, all of which the client sets, so a fake header per request would dodge the login rate limit. In production we take the last `X-Forwarded-For` entry (the one Render's proxy added); locally we ignore all those headers and use the TCP address. |
 | Product page stock | `GET /api/products/{slug}` counts claimable keys live per offer and rebuilds the price summary from that count with `products.Summarize` (the same function the seed uses, and the purchase transaction will use). The cached `offers.stock` is only used by listings. |
 | Bad store query params | `400 BAD_REQUEST` naming the param (unknown platform, `pageSize` over 60, `minPrice` above `maxPrice`), instead of ignoring them, so a broken link fails loudly. |
+| Search `q` length | Trimmed, capped at 100 chars (`400` above). Fuzzy matching cost grows with every term, and no product name is that long. |
+| Where `Searcher` lives | `products.Searcher` interface, implemented by `search.Service`. `search` imports `products` (for `ListQuery`, `ToCard`), so the interface has to sit in `products` to avoid an import cycle. |
 | Unknown errors | `httpx.WriteError` logs them and returns `500 INTERNAL "Something went wrong"`, so driver messages never reach the browser. |
 
 ## 12. Future improvements
@@ -765,3 +774,4 @@ Not planned for the 3 days. Listed so the trade-offs are on record.
 8. **Panic after a partial response.** `Recoverer` writes a 500 error body after a panic. If the handler had already started writing, the headers are already sent, so the error JSON is appended to the half-written body and the client gets broken JSON. No current handler streams, so it can't happen yet. Fix: wrap the writer, and if bytes were already sent, abort the connection (`panic(http.ErrAbortHandler)`) instead of writing more.
 9. **Store sorts that use their index.** Every store sort ends in `_id: 1` so pages stay stable, but no index holds `_id`, so Mongo can't read results in sort order. `explain` on `eneba_dev` shows that for every sort it scans all matching index entries, fetches every doc, sorts them in memory and keeps 20 (60 docs read for 20 returned). Without the tie-break, `platform=steam&sort=price_asc` reads the `minPriceCents` index in order and stops after 44. No cost at 60 products; at 100k it would read every in-stock product per page. Fix: add `_id` as the last field of the sort indexes (`{active, inStock, minPriceCents, _id}` and so on), and give the tie-break the main field's direction in `listSort` so `price_desc` can read the index backwards. `inStock=false` needs its own look: there `inStock` is not fixed by the filter, so the leading `inStock: -1` sort key has to line up with the index too, and `newest` uses `{active, createdAt}`, which has no `inStock` at all. Check with `explain` that the plan has no `SORT` stage.
 10. **Two seeds at once.** Known limit, accepted: the seed is a dev tool only the owner runs. Without `--reset`, a second run fails on the unique `sellers.slug` index and inserts nothing. With `--reset` on both, the clear and inserts are separate steps, so they can interleave: both runs report success, but the db can hold orphan keys and every homepage block twice. A seed that dies halfway leaves partial data too. Re-running with `--reset` fixes both. Fix if it ever matters: run the clear and inserts in one transaction.
+11. **Search fallback when Atlas Search fails.** Today a `$search` error is a `500`, so store search and autocomplete stop working while the rest of the store keeps going. Fix: when the aggregate errors, run a plain `find` with a case-insensitive, escaped prefix regex on `name` (`regexp.QuoteMeta` on each word) plus the same filters and sort. Partial names would still work; typos would not. It does not help when the index is missing, because then `$search` returns no results instead of an error; `/healthz` reports that case as `"search": "missing"`.
