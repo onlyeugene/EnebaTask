@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { notFound } from "next/navigation";
 import { ApiError } from "@/lib/client";
-import { buttonStyles } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useProduct } from "../hooks/use-product";
@@ -30,16 +29,18 @@ export function ProductView({ slug }: { slug: string }) {
     document.getElementById("details")?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // An unknown or inactive slug is a 404 from the API: show the site's 404
+  // page ((shop)/not-found.tsx). notFound() works from a client component, but
+  // the data loads in the browser, so the HTTP status stays 200.
+  if (query.isError && !query.isFetching && query.error instanceof ApiError && query.error.status === 404) {
+    notFound();
+  }
+
   let body;
   if (query.isPending || (query.isError && query.isFetching)) {
     body = <ProductSkeleton />;
   } else if (query.isError) {
-    body =
-      query.error instanceof ApiError && query.error.status === 404 ? (
-        <NotFound />
-      ) : (
-        <ErrorState message="This product couldn't load." onRetry={() => void query.refetch()} />
-      );
+    body = <ErrorState message="This product couldn't load." onRetry={() => void query.refetch()} />;
   } else {
     const { product, offers } = query.data;
     body = (
@@ -66,20 +67,6 @@ export function ProductView({ slug }: { slug: string }) {
   }
 
   return <div className="mx-auto max-w-wide px-4 pt-6 pb-10">{body}</div>;
-}
-
-function NotFound() {
-  return (
-    <div className="bg-brand-dark px-6 py-12 text-center">
-      <h1 className="text-3xl font-extrabold">Product not found</h1>
-      <p className="mt-3 text-base text-text-secondary">
-        It may have been removed, or the link is wrong.
-      </p>
-      <Link href="/store" className={`${buttonStyles.primary} mt-6`}>
-        Browse the store
-      </Link>
-    </div>
-  );
 }
 
 function ProductSkeleton() {

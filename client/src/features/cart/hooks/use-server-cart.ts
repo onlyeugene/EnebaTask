@@ -1,5 +1,6 @@
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Cart } from "@/types/api";
+import { clearHeldOrder } from "@/features/checkout/held-order";
 import { getCart, removeItem, SERVER_CART_KEY, upsertItem } from "../api";
 import { MAX_QTY } from "../store";
 import type { CartView } from "./cart-view";
@@ -37,6 +38,9 @@ export function useServerCart(enabled: boolean): CartView {
 
   // null quantity = remove the line.
   const change = (offerId: string, quantity: number | null) => {
+    // An order held for checkout was reserved from the old cart; Pay must
+    // reserve a new one that matches this cart (checkout/held-order.ts).
+    clearHeldOrder();
     // A GET still on its way would overwrite the change with the old cart.
     void client.cancelQueries({ queryKey: SERVER_CART_KEY });
     client.setQueryData<Cart>(SERVER_CART_KEY, (c) =>
