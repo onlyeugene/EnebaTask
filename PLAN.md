@@ -93,6 +93,12 @@ MongoDB Atlas M0
 { _id, userId, items: [ { offerId, productId, quantity: 2, addedAt } ], updatedAt }
 ```
 
+### wishlists
+
+```js
+{ _id, userId, items: [ { productId, addedAt } ], updatedAt }   // one per user, at most 100 items
+```
+
 ### orders
 
 ```js
@@ -149,6 +155,7 @@ MongoDB Atlas M0
 | Seller in offer | **Reference + `$lookup`** | Few sellers, and a product page reads at most a handful of offers. Not worth copying seller data into every offer. |
 | Product summary (`minPriceCents`, `discountPct`, `offerCount`, `inStock`) | **Copied onto product** | The store page sorts and filters by price. Computing a min over offers for every listing query would mean a `$lookup` per row. We copy it and update it in the same transaction that changes stock. |
 | Cart items | **Embedded in cart** | Always read and written together, small, capped at ~20 lines. |
+| Wishlist items | **Embedded in wishlist, product id only** | Same as the cart: read and written together, capped at 100. Cards are read live from `products`. |
 | Order items | **Embedded, with a snapshot of name/price/seller** | An order is a receipt. It must show what was paid even if the product is renamed or repriced later. |
 | Delivered keys | **Copied into the order item on payment** (ids kept too) | "Order and key" page reads one document. The key status in `keys` stays the source of truth for stock. |
 | Block config | **Embedded in block** | Owned by that block alone. |
@@ -175,6 +182,7 @@ Created at API startup (idempotent `CreateMany`) and by the seed script.
 | keys | `{ status: 1, reservedUntil: 1 }` | Cleanup job finds expired reservations |
 | keys | `{ orderId: 1 }` | Release/sell keys of one order |
 | carts | `{ userId: 1 }` unique | One cart per user |
+| wishlists | `{ userId: 1 }` unique | One wishlist per user |
 | orders | `{ userId: 1, createdAt: -1 }` | Order history |
 | orders | `{ status: 1, reservedUntil: 1 }` | Sweeper |
 | orders | `{ number: 1 }` unique | |
@@ -257,7 +265,7 @@ See [API.md](API.md). Summary of what needs a token:
 
 | Public | Bearer |
 |---|---|
-| `/healthz`, auth register/login/refresh, products list/filters/detail/cover, autocomplete, homepage layout + blocks, cart quote | auth logout/me, cart get/put/delete/merge, orders create/pay/list/get |
+| `/healthz`, auth register/login/refresh, products list/filters/detail/cover, autocomplete, homepage layout + blocks, cart quote | auth logout/me, cart get/put/delete/merge, orders create/pay/list/get, wishlist get/put/delete/merge |
 
 ---
 
@@ -485,10 +493,19 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
 │  │  │  ├─ handler.go
 │  │  │  └─ routes.go             # Routes(): /, /{id}, /{id}/pay, all behind RequireAuth → mounted at /api/orders
 │  │  │
-│  │  └─ keys/
-│  │     ├─ model.go              # Key (available | reserved | sold)
-│  │     ├─ repository.go         # Repository: CountClaimable, Claim, Sell, Codes, Release; claimable() filter lives here
-│  │     └─ repository_mongo.go
+│  │  ├─ keys/
+│  │  │  ├─ model.go              # Key (available | reserved | sold)
+│  │  │  ├─ repository.go         # Repository: CountClaimable, Claim, Sell, Codes, Release; claimable() filter lives here
+│  │  │  └─ repository_mongo.go
+│  │  │
+│  │  └─ wishlist/
+│  │     ├─ model.go              # Wishlist, Item (stored); View, Entry (API shapes); MaxItems
+│  │     ├─ repository.go         # Repository (wishlists + active product lookup)
+│  │     ├─ repository_mongo.go
+│  │     ├─ service.go            # Get, Add, Remove, Merge — no Mongo calls here
+│  │     ├─ service_test.go       # merge: union, no duplicates, twice is the same, gone products, cap
+│  │     ├─ handler.go
+│  │     └─ routes.go             # Routes(): /, /{productId}, /merge, all behind RequireAuth → mounted at /api/wishlist
 │  │
 │  ├─ Dockerfile
 │  ├─ .dockerignore
@@ -509,8 +526,10 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │  │  ├─ product/
    │  │  │  │  └─ [slug]/
    │  │  │  │     └─ page.tsx     # renders <ProductView />
-   │  │  │  └─ orders/
-   │  │  │     └─ page.tsx        # order history
+   │  │  │  ├─ orders/
+   │  │  │  │  └─ page.tsx        # order history
+   │  │  │  └─ wishlist/
+   │  │  │     └─ page.tsx        # renders <WishlistView />
    │  │  ├─ (checkout)/           # stepper header + short footer: cart, checkout, order and key
    │  │  │  ├─ layout.tsx
    │  │  │  ├─ cart/
@@ -533,7 +552,7 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │  │  ├─ hooks/             # use-homepage.ts, use-block.ts
    │  │  │  └─ api.ts             # getHomepageLayout, getBlock
    │  │  ├─ store/
-   │  │  │  ├─ components/        # store-view.tsx, store-content.tsx, filter-panel.tsx, filter-section.tsx, check-list.tsx, price-range.tsx, active-filters.tsx, sort-select.tsx, product-results.tsx, pagination.tsx
+   │  │  │  ├─ components/        # categories-drawer.tsx (nav bar "Categories"), store-view.tsx, store-content.tsx, filter-panel.tsx, filter-section.tsx, check-list.tsx, price-range.tsx, active-filters.tsx, sort-select.tsx, product-results.tsx, pagination.tsx
    │  │  │  ├─ hooks/             # use-products.ts, use-filters.ts, use-store-params.ts (URL read/write)
    │  │  │  └─ api.ts             # getProducts, getFilters
    │  │  ├─ search/
@@ -563,6 +582,12 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │  │  ├─ components/        # orders-view.tsx, order-list.tsx, order-detail.tsx, order-status.tsx, key-reveal.tsx
    │  │  │  ├─ hooks/             # use-orders.ts, use-order.ts
    │  │  │  └─ api.ts             # getOrders, getOrder
+   │  │  ├─ wishlist/
+   │  │  │  ├─ components/        # wishlist-view.tsx, wishlist-filters.tsx, wishlist-sort.tsx, wishlist-empty.tsx, wishlist-link.tsx (header heart + count), wishlist-toggle.tsx (product page heart)
+   │  │  │  ├─ hooks/             # use-wishlist.ts (ids + toggle, guest ↔ server), use-wishlist-entries.ts (page data), use-guest-wishlist-sync.ts
+   │  │  │  ├─ store.ts           # Zustand guest wishlist + localStorage persist
+   │  │  │  ├─ merge.ts           # mergeGuestWishlist: POST /merge, clear guest items only on success
+   │  │  │  └─ api.ts             # getWishlist, addToWishlist, removeFromWishlist, mergeWishlist
    │  │  └─ auth/
    │  │     ├─ components/        # login-form.tsx, register-form.tsx, auth-card.tsx, form-bits.tsx (show password, form error), password-rules.tsx, account-menu.tsx, require-auth.tsx
    │  │     ├─ hooks/             # use-me.ts, use-sign-in.ts (tokens → merge → next), use-logout.ts
@@ -581,6 +606,7 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │  │  ├─ skeleton.tsx
    │  │  │  ├─ modal.tsx          # native <dialog>
    │  │  │  ├─ platform-icon.tsx  # lucide icon per platform (card, product page)
+   │  │  │  ├─ wishlist-button.tsx # bookmark ribbon heart (card, product page); RIBBON shape
    │  │  │  ├─ error-state.tsx
    │  │  │  └─ error-boundary.tsx
    │  │  └─ layout/               # shell components (mostly server)
@@ -589,7 +615,7 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │     ├─ checkout-header.tsx # server: logo, steps, "English EU | EUR"
    │  │     ├─ checkout-steps.tsx # client: 3-step bar, step read from the URL
    │  │     ├─ checkout-footer.tsx # server: demo disclaimer line only
-   │  │     ├─ nav-bar.tsx        # server: categories nav
+   │  │     ├─ nav-bar.tsx        # server: nav bar; "Categories" drawer passed in as a slot
    │  │     ├─ cart-button.tsx    # client: cart icon + count badge
    │  │     └─ footer.tsx         # server: demo disclaimer
    │  │
@@ -722,13 +748,13 @@ Trade-off we accept: localStorage tokens can be read by any script that runs on 
 | Keys | Fake codes, stored as plain text | A real system would encrypt them at rest; noted, not built |
 | Key delivery | Shown on the order page; no email | No email provider needed |
 | Cashback, service fee | Display only (cashback = `cashbackPct` of price, fee "--") | Matches screenshots without a wallet system |
-| Wishlist, reviews, social login, newsletter, "someone just purchased" toasts, countdown widget | Not built | Not in the assignment; time goes to the core flow |
+| Reviews, social login, newsletter, wishlist price alerts, "someone just purchased" toasts, countdown widget | Not built | Not in the assignment; time goes to the core flow |
 | Admin | None; data changes go through the seed script | |
 | Images | Generated SVG covers, lucide icons for platforms/categories | No copyrighted art, no brand logos |
 
 ### Stretch (only if time allows)
 1. Seller offers: `POST /api/seller/offers` with key upload, a `role: "seller"` on users.
-2. Wishlist (heart on cards, `wishlists` collection). See future improvement 14 for the card heart.
+2. ~~Wishlist (heart on cards, `wishlists` collection).~~ Built in phase 18.
 3. "Recently viewed" block (client-only, localStorage).
 
 ---
@@ -757,6 +783,7 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | 15 ✅ | Checkout: stepper layout, create order, payment form, decline path, order + key page, order history. When pay returns `409 ORDER_NOT_PAYABLE`, reload the order with `GET /api/orders/{id}`: if it is already `paid`, show its keys instead of an error (the pay went through but its response was lost, e.g. a crash after commit or a dropped connection) | Full flow from home to key; decline card returns to cart with stock intact; a second pay on a paid order shows the keys, not an error |
 | 16 | Deploy: Dockerfile, Render service, Atlas `eneba_prod` seed + search index, Vercel project, CORS. Files done and checked locally (image built, run with `APP_ENV=production`: healthz ok, last `X-Forwarded-For` entry logged, CORS only for the listed origin, `?fail=1` ignored; `next build` green). The owner's dashboard steps are in [DEPLOY.md](DEPLOY.md) | Full flow works on the public URLs |
 | 17 ✅ | Polish + check: responsive pass, empty states, README (setup, decisions, limits), check every line of ASSIGNMENT.md | Every assignment item ticked in README |
+| 18 ✅ | Wishlist + categories drawer (owner's request, beyond the assignment; match `favorites.png` and Eneba's drawer). Wishlist: `wishlists` collection, `GET/PUT/DELETE /api/wishlist/{productId}`, `POST /merge` (union), guest list in localStorage merged at login, ribbon heart on cards and product page, header count, `/wishlist` page with name search, type filter, sort and empty state. Drawer: nav "Categories" opens it from the left, genres panel for games | `go test ./internal/wishlist/...` green (merge only); curl flow; headless Chrome: guest hearts → page → register merges → failed PUT rolls back; drawer opens and closes on X, Esc, dim area and links, focus kept and returned |
 
 | 15b | **Parked until after phase 15** (owner's call): "Cheap games" promo page on the block system. A `page` field on `homepage_blocks` (`"home"` by default) and `?page=` on the layout endpoint; route `/deals/cheap-games`; a `promo_hero` block (heading, text, yellow button, generated SVG collage of our covers); rails reusing the `Rail` service with a max price ("Games / Xbox games / Nintendo games / Gift cards under €10", each "Show all" to the same store filters); same band alternation; seeded blocks; nav "Cheap Games" points there. No Trustpilot or real brands. Ask the owner first if it changes existing homepage behaviour. | Page renders from seeded blocks; homepage unchanged |
 
@@ -857,6 +884,12 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | 404 page | Eneba's "Highscore! 404": heading (`text-display`, `text-3xl` below 600px), one line, an outlined "Continue browsing" to `/`, inside the shop layout. The background is our own: pixel keys, gems, hearts and plus signs drawn as SVG from small text grids (`pixel-shapes.tsx`), in the accent tokens, floating with `animate-float` (off under reduced motion). Eneba's ghosts are left out, since they look like a known game's characters. `(shop)/not-found.tsx` only catches `notFound()` calls, so a catch-all `(shop)/[...missing]` route calls it for unknown URLs (a real 404 status, with header and nav); every other route ranks above a catch-all. The product page calls `notFound()` when the API answers 404. It loads in the browser, so that status stays 200: accepted, since the data fetch rule keeps server components data-free. |
 | Deploy files | `server/Dockerfile` builds in `golang:1.25-alpine` and ships the static binary in `distroless/static:nonroot` (about 21 MB, no shell, CA certs for Atlas TLS). `render.yaml` at the repo root holds the plain settings; secrets are `sync: false` (Render asks once, the file never holds them). `JWT_SECRET` uses `generateValue`, so the prod secret never exists outside Render and can't be the dev one. Docker paths are given from the repo root with a `buildFilter` on `server/**` rather than `rootDir`, because Render's docs don't say how `rootDir` changes `dockerfilePath`. Region `frankfurt` (can't change later). Steps the owner does by hand are in [DEPLOY.md](DEPLOY.md). |
 | Responsive check | Phase 17 drove headless Chrome over its debugging protocol with device emulation (375px phone, 768px tablet, touch on), since a plain headless window can't go that narrow. For each page it compared the page's scroll width with the screen width and saved a screenshot. Pages: home, store (plain, filtered, no results), product (game, gift card), cart (empty, guest, signed in), cart popover (empty, full), search dropdown, login, register, 404, checkout, orders (empty, one paid), order page. One overflow found and fixed: the hero tiles below 600px (a long word in the title was wider than a third of the screen). Empty states added: a homepage with no active blocks, and a categories grid with no tiles. |
+| Wishlist storage | Like the cart: guests in `localStorage["eugene.guest-wishlist"]` (Zustand, `skipHydration`, read after mount by the header's `WishlistLink`), signed-in users in `wishlists` (one doc per user, ids and dates only). Writes use the cart's `Repository.Update` pattern (read, change, save in one transaction). Capped at 100 to keep the doc small and the guest page's requests bounded. `seed --reset` clears `wishlists` too, since the product ids change. |
+| Wishlist merge | At login (`useSignIn`, next to the cart merge), the guest list goes to `POST /api/wishlist/merge` and is cleared only after a `200`, and then only the items that were sent. The server keeps the union: an item already saved keeps its own date, so a retried merge changes nothing. Guest dates are kept (so "newest first" still works after login); a missing or future date becomes now. Gone products are skipped quietly: unlike the cart, nothing is lost that the user could act on. A failed merge is retried by `useGuestWishlistSync` on the next page. |
+| Wishlist hearts | `ProductCard` takes `wishlisted` and `onToggleWishlist` (future improvement 14). The heart is a sibling of the card's link, like the hover buttons, so a click never opens the product page. Not saved: on mouse devices `opacity-0` until the card is hovered or focused; on touch screens always shown as an outline heart, since there is no hover to reveal it (owner's call; the first version hid it there). Every hover rule carries `can-hover:`, so on a mouse device it comes after the plain `opacity-0` in the CSS and wins; checked in headless Chrome with a mouse page and a touch page. Saved: always shown, teal ribbon (`--color-teal` #23c299) with a filled white heart. The ribbon is a `clip-path` with a V cut at the bottom; hovering an unsaved heart fills it with `ink` at 50%. The gift card tag moved to the cover's top left, since the heart took its corner. `WishlistButton` sets neither its display nor its position: the first version had `relative` inside while the card passed `absolute`, and `relative` won (CSS order, not class order), so the heart sat under the card instead of on the cover. |
+| Wishlist toggle | Signed in, a click changes the cached list at once, then sends `PUT` or `DELETE`. The writes share a mutation `scope`, so they run in click order, and only the last answer is put on screen (the cart's approach). If a write fails, that one change is undone (an add is removed, a removed entry is put back) and the list reloads. Checked in headless Chrome with a forced 500: the heart went on, then off. Guests change localStorage only, which can't fail. |
+| Wishlist page | `/wishlist` in `(shop)` (favorites.png). Signed in: one `GET /api/wishlist`. Guest: one `GET /api/products/{slug}` per item, the product page's own query (shared cache, live prices, no new endpoint); a 404 means the product is gone and it is left out. Name search, type filter and sort run in the browser on that list, in component state, not the URL (the list is per user, so a link to it means nothing to anyone else). Type counts are for the whole list. Sorts: date newest (default), date oldest, price low to high (sold out last). Left out from Eneba: the email price alert banner, since we send no emails. |
+| Categories drawer | `CategoriesDrawer` in `features/store`, since it reads genres from `/api/products/filters` (only once first opened). The server `NavBar` gets it as a `categories` slot, like the header's search. A native `<dialog>` with `showModal()`, like `Modal`: dim backdrop, focus kept inside and Escape for free; focus goes back to the button on close. A click on the backdrop lands on the `<dialog>` itself and closes it; so does any link. "Games" opens a second panel (All games + each genre) with a Back button; focus moves to Back, and back to "Games" on return. Eneba's list is longer (mobile games, e-money, eSIM…); ours lists only what the store has: all offers, games, gift cards, software, then the five platforms. On phones the nav bar scrolls sideways, so its "Categories" item is `sticky left-0` and stays in reach. |
 | Footer | Eneba's footer opens with a light strip of payment logos. Brand logos are off limits, so the strip lists "Secure checkout / Keys delivered at once / Simulated payments only" with lucide icons, then a dark section with the demo disclaimer. |
 
 ## 12. Future improvements
@@ -876,5 +909,5 @@ Not planned for the 3 days. Listed so the trade-offs are on record.
 11. **Search fallback when Atlas Search fails.** Today a `$search` error is a `500`, so store search and autocomplete stop working while the rest of the store keeps going. Fix: when the aggregate errors, run a plain `find` with a case-insensitive, escaped prefix regex on `name` (`regexp.QuoteMeta` on each word) plus the same filters and sort. Partial names would still work; typos would not. It does not help when the index is missing, because then `$search` returns no results instead of an error; `/healthz` reports that case as `"search": "missing"`.
 12. **Rate limit counts that survive restarts.** httprate keeps its counts in memory, so a deploy, crash or free-tier sleep resets every IP to zero, and a second instance would keep its own counts. Accepted: a reset gives at most 10 more attempts, and bcrypt is the real defence. Per-IP limits also let someone with many IPs get 10 tries on each. Fix: keep counts in a shared store (`httprate-redis`, or a Mongo collection with a TTL index), and add a per-email limit on failed logins.
 13. **Rails skip the count.** Homepage rails call `products.Service.List`, which runs `CountDocuments` for a `total` the homepage never reads: 4 wasted queries per page load (about 16 db round trips in all). Accepted: cheap at 60 products, and reusing `List` keeps rails identical to the store. Fix: a `products.Service.Top(ctx, q)` that runs only the `Find`, used by `Rail`.
-14. **Wishlist heart on product cards.** On Eneba a heart shows in the top right of a card on hover. Left out because wishlist isn't built (stretch goal 2), and a heart that does nothing would be a fake control. Add it with the wishlist: an `onToggleWishlist` prop on `ProductCard`, shown with the same `can-hover` rule as the hover buttons. The gift card tag sits in the same corner, so one of them has to move.
+14. ~~**Wishlist heart on product cards.**~~ Built in phase 18 (see "Wishlist hearts" in section 11).
 15. **Dark homepage band through a token.** The darker band is set to #3c1395 (kept by choice), and both its background and its `--band` use the raw value: `bg-[#3c1395] [--band:#3c1395]` in `home-blocks.tsx`. The two match, so the category row's edge fade blends into the band, but it breaks the tokens-only styling rule. #3c1395 is already the `brand-border` token. Fix: use `bg-brand-border [--band:var(--color-brand-border)]` in `BANDS`, change the comment above it ("darkest" → "darker"), note the second use of `brand-border` in `globals.css` and `design-reference/notes.md`, and change the "Homepage bands" row in section 11 from `brand-darkest` (#1f0a4d) to `brand-border` (#3c1395).

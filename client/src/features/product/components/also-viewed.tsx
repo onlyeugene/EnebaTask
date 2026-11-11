@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ProductDetail } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { ProductCard } from "@/components/ui/product-card";
+import { useWishlist } from "@/features/wishlist/hooks/use-wishlist";
 import { useAddCheapest } from "../hooks/use-add-cheapest";
 import { useAlsoViewed } from "../hooks/use-also-viewed";
 
@@ -17,6 +18,7 @@ export function AlsoViewed({ product }: { product: ProductDetail }) {
   const [limit, setLimit] = useState(STEP);
   const { items, hasMore, loading } = useAlsoViewed(product, limit);
   const addCheapest = useAddCheapest();
+  const wishlist = useWishlist();
 
   // Nothing to show (or it failed): leave the section out, the page works without it.
   if (items.length === 0) return null;
@@ -26,7 +28,13 @@ export function AlsoViewed({ product }: { product: ProductDetail }) {
       <h2 className="mb-6 text-xl font-extrabold">Gamers also viewed</h2>
       <div className="grid grid-cols-[repeat(auto-fill,224px)] justify-center gap-5 sm:justify-start">
         {items.map((p) => (
-          <ProductCard key={p.id} product={p} onAddToCart={addCheapest} />
+          <ProductCard
+                  key={p.id}
+                  product={p}
+                  onAddToCart={addCheapest}
+                  wishlisted={wishlist.has(p.id)}
+                  onToggleWishlist={wishlist.toggle}
+                />
         ))}
       </div>
       {hasMore && limit < MAX && (

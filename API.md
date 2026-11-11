@@ -70,6 +70,9 @@ type CartLine = {
 
 type Cart = { items: CartLine[]; itemCount: number; totalCents: number; cashbackCents: number };
 
+type WishlistEntry = { product: ProductCard; addedAt: string }; // addedAt: UTC, RFC 3339
+type Wishlist = { items: WishlistEntry[] };                      // stored order: oldest first
+
 type OrderItem = {
   offerId: string; productId: string; name: string; slug: string;
   platform: string; region: string; sellerName: string;
@@ -213,6 +216,23 @@ Rules and errors:
 - `PUT` sets the quantity (it does not add to it). `quantity` outside 1–10 → `422`. An offer that is gone, inactive or not a valid id → `404 NOT_FOUND`. A new line when the cart already has 20 → `422`. `PUT` does not cap at stock: the user chose the number, so the line shows `NOT_ENOUGH_STOCK` instead.
 - `DELETE` of an offer that isn't in the cart still returns `200` with the cart. Not a valid id → `404`.
 - Every write runs in a transaction (read, change, save), so two tabs writing at once never lose each other's lines.
+
+## Wishlist
+
+Guests keep the wishlist in the browser (Zustand, product ids, slugs and dates). Signed-in users have a server wishlist; the guest list merges into it on login.
+
+| Method | Path | Auth | Request | Response |
+|---|---|---|---|---|
+| GET | `/api/wishlist` | Bearer | — | `200 Wishlist` |
+| PUT | `/api/wishlist/{productId}` | Bearer | — | `200 Wishlist` |
+| DELETE | `/api/wishlist/{productId}` | Bearer | — | `200 Wishlist` |
+| POST | `/api/wishlist/merge` | Bearer | `{ items: { productId, addedAt? }[] }` | `200 Wishlist` |
+
+- Cards are read live (the same `ProductCard` as the store), so prices are never stale. Sold-out products stay, with `minPriceCents: null`. A product that has been taken down is left out of the answer but kept in the stored list.
+- `PUT` adds the product; adding one already saved changes nothing (its date stays). Unknown, inactive or invalid id → `404 NOT_FOUND`. A 101st product → `422 VALIDATION_FAILED`.
+- `DELETE` of a product that isn't saved still returns `200`. Invalid id → `404`.
+- Merge keeps the **union**, each product once. A product already saved keeps its own date, so running the merge twice gives the same list. A guest item takes its `addedAt` (a missing or future date becomes now). Unknown or inactive products and anything past 100 are skipped. At most 100 items in the body; an invalid `productId` → `422` with `fields` such as `{ "items[0].productId": "is not a valid id" }`. A product listed twice in the body is kept once.
+- Every write runs in a transaction (read, change, save), like the cart.
 
 ## Orders and payment
 

@@ -13,6 +13,7 @@ import { CashbackBadge, GiftCardTag } from "./badge";
 import { buttonStyles } from "./button";
 import { PlatformIcon } from "./platform-icon";
 import { Price } from "./price";
+import { WishlistButton } from "./wishlist-button";
 
 // Hover: the strip and info slide up by the height of the button panel
 // (2 buttons of 44px + 8px gap + 20px bottom padding = 116px) while the
@@ -26,9 +27,12 @@ type Props = {
   product: Card;
   // The page decides what "add" means (home and store add the cheapest offer).
   onAddToCart?: (product: Card) => void;
+  // The heart shows only when the page passes a toggle (the wishlist feature).
+  wishlisted?: boolean;
+  onToggleWishlist?: (product: Card) => void;
 };
 
-export function ProductCard({ product, onAddToCart }: Props) {
+export function ProductCard({ product, onAddToCart, wishlisted = false, onToggleWishlist }: Props) {
   const price = product.minPriceCents;
   const href = `/product/${product.slug}`;
 
@@ -49,8 +53,9 @@ export function ProductCard({ product, onAddToCart }: Props) {
             loading="lazy"
             className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
+          {/* Top left: the top right corner belongs to the wishlist heart. */}
           {product.type === "gift_card" && product.giftCardValue && (
-            <span className="absolute top-2 right-2">
+            <span className="absolute top-2 left-2">
               <GiftCardTag value={product.giftCardValue} />
             </span>
           )}
@@ -70,6 +75,25 @@ export function ProductCard({ product, onAddToCart }: Props) {
           <CardInfo product={product} />
         </div>
       </Link>
+
+      {/* A sibling of the link, like the buttons below, so a click on it never
+          opens the product page (and a button inside a link is invalid HTML).
+          Saved: always shown. Not saved: on mouse devices only while the card is
+          hovered or has keyboard focus; on touch screens always shown, since
+          there is no hover to reveal it. The hover rules all carry `can-hover:`,
+          so on a mouse device they come after the plain opacity-0 in the CSS. */}
+      {onToggleWishlist && (
+        <WishlistButton
+          active={wishlisted}
+          onClick={() => onToggleWishlist(product)}
+          productName={product.name}
+          className={`absolute top-0 right-2 flex ${
+            wishlisted
+              ? ""
+              : "can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:group-focus-within:opacity-100"
+          }`}
+        />
+      )}
 
       {/* Not rendered at all on touch screens (display: none), so it can't be
           tapped or focused there. */}

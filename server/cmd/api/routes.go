@@ -19,6 +19,7 @@ import (
 	"eugene/internal/platform/middleware"
 	"eugene/internal/products"
 	"eugene/internal/search"
+	"eugene/internal/wishlist"
 )
 
 // handlers holds one HTTP handler per feature. main.go builds them; newRouter only mounts them.
@@ -29,6 +30,7 @@ type handlers struct {
 	home     *home.Handler
 	cart     *cart.Handler
 	orders   *orders.Handler
+	wishlist *wishlist.Handler
 }
 
 func newRouter(cfg config.Config, database *mongo.Database, h handlers) http.Handler {
@@ -60,6 +62,7 @@ func newRouter(cfg config.Config, database *mongo.Database, h handlers) http.Han
 		api.Mount("/homepage", h.home.Routes())
 		api.Mount("/cart", h.cart.Routes())
 		api.Mount("/orders", h.orders.Routes())
+		api.Mount("/wishlist", h.wishlist.Routes())
 	})
 
 	return r

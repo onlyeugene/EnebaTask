@@ -61,6 +61,8 @@ Every line of [ASSIGNMENT.md](ASSIGNMENT.md), and where it's covered.
 | **Authentication**: create an account and sign in | ✅ | `/register`, `/login` → [features/auth/](client/src/features/auth/), [internal/auth/](server/internal/auth/) |
 | Auth: checkout and order history only for signed-in users | ✅ | The API returns 401 without a token; the client sends guests to `/login?next=…` ([require-auth.tsx](client/src/features/auth/components/require-auth.tsx)) |
 | **Eneba styling**: colors, typography, spacing, components follow the design reference | ✅ | Tokens from [design-reference/notes.md](design-reference/notes.md) in [globals.css](client/src/app/globals.css). Tailwind's default colors and sizes are switched off, so only these tokens work. Checked at phone (375px), tablet (768px) and desktop widths |
+| _Extra:_ wishlist | ✅ | Not in the assignment. A heart on product cards and the product page, a header count, and `/wishlist` with name search, type filter and sort. Guests keep it in the browser; it merges into the account at login, like the cart ([features/wishlist/](client/src/features/wishlist/), [internal/wishlist/](server/internal/wishlist/)) |
+| _Extra:_ categories drawer | ✅ | Not in the assignment. "Categories" in the nav bar opens a drawer from the left: all offers, types, a games panel with every genre, and platforms. On phones it is the main way around ([categories-drawer.tsx](client/src/features/store/components/categories-drawer.tsx)) |
 
 ### Purchase flow
 
@@ -130,7 +132,7 @@ npm run dev                  # http://localhost:3000
 
 ```
 cd server
-go test ./...    # auth, cart merge, orders, payment checks, HTTP helpers; no database needed
+go test ./...    # auth, cart merge, wishlist merge, orders, payment checks, HTTP helpers; no database needed
 ```
 
 The integration tests prove two buyers can never get the same key. They need a real Atlas cluster and always use (and wipe) a database named `eneba_test`:
@@ -156,7 +158,7 @@ MongoDB Atlas M0
 ```
 
 - **The browser calls the Go API directly.** Next.js only serves pages: no API routes, no server-side data fetching. Pages that show data are client components using TanStack Query.
-- **The server is split by feature:** `auth`, `products`, `search`, `home`, `cart`, `orders`, `keys` under [server/internal/](server/internal/). Each has the same files: `model.go`, `repository.go` (interface), `repository_mongo.go`, `service.go` (logic), `handler.go` (HTTP only), `routes.go`. Handlers never touch Mongo; services never touch HTTP. That keeps the logic testable with in-memory fakes.
+- **The server is split by feature:** `auth`, `products`, `search`, `home`, `cart`, `orders`, `keys`, `wishlist` under [server/internal/](server/internal/). Each has the same files: `model.go`, `repository.go` (interface), `repository_mongo.go`, `service.go` (logic), `handler.go` (HTTP only), `routes.go`. Handlers never touch Mongo; services never touch HTTP. That keeps the logic testable with in-memory fakes.
 - **The client is split the same way:** [client/src/features/](client/src/features/) holds one folder per feature with its own components, hooks and API calls. [components/ui/](client/src/components/ui/) is the shared design system, and [app/](client/src/app/) holds only routes and layouts.
 
 Full folder map: [PLAN.md section 6](PLAN.md#6-folder-structure). Every endpoint: [API.md](API.md).
@@ -171,6 +173,7 @@ Full folder map: [PLAN.md section 6](PLAN.md#6-folder-structure). Every endpoint
 | `keys` | **One document per key**: code, status (`available` / `reserved` / `sold`), order id, `reservedUntil` | Each key can be claimed with one atomic update, so two buyers can never get the same one |
 | `users` | Email, bcrypt hash, name | |
 | `carts` | Signed-in user's lines: offer id + quantity only | Prices and stock are looked up live on every read, so a cart never shows a stale price |
+| `wishlists` | Signed-in user's saved products: product id + date added | Like the cart, names and prices are read live, so the list never shows a stale price |
 | `orders` | Lines with a copy of name, price and seller; key ids; codes once paid | An order is a receipt: it must show what was paid even if the product changes later |
 | `homepage_blocks` | Type, title, order, active flag, per-type config | The homepage layout is data, not code |
 | `refresh_tokens` | SHA-256 of each refresh token, its login "family", used flag | Lets the API spot a stolen token used twice. A TTL index deletes old ones |
@@ -220,8 +223,7 @@ Every other decision, with its reason: [PLAN.md section 11](PLAN.md#11-decisions
 - **Search needs the Atlas index.** If `$search` errors, store search and autocomplete return a 500 while the rest of the store works. `/healthz` reports a missing index.
 - **Signing in to a different account in another tab** without logging out first isn't noticed until reload.
 - **Filter counts are for the whole store,** not the current selection.
-- **The header heart opens the 404 page.** Wishlist isn't built.
-- **Not built:** seller accounts, admin, wishlist, reviews, refunds, emailed keys, social login, other currencies or languages.
+- **Not built:** seller accounts, admin, wishlist price alerts, reviews, refunds, emailed keys, social login, other currencies or languages.
 - **Vercel preview deploys can't reach the API:** CORS allows only the production URL.
 
 ## Future improvements
@@ -253,7 +255,7 @@ I built this with **Claude Code in VS Code** (Claude Sonnet 4.6), phase by phase
 - **Two pending orders for one user.** Walking through checkout, we saw that a user who went back and checked out again would hold two sets of keys, and on low stock their own first order would block the second. I asked for a new order to expire the user's older pending orders in the same transaction, with a test. ([phase 9 log](chat-logs/10-phase9-orders-claude-code.md))
 - **A paid order whose answer got lost.** I asked what happens if the server crashes mid-checkout. That led to a rule for phase 15: when Pay returns 409, reload the order and show the keys if it's already paid. Later I added the `sessionStorage` fix so a refresh mid-payment finishes the same order. ([phase 9](chat-logs/10-phase9-orders-claude-code.md), [phase 15](chat-logs/16-phase15-checkout-claude-code.md))
 - **Checking a "fix".** I asked the agent to fix a race when two writes create a user's first cart. It found that Mongo already reports that case as a write conflict and retries it, so the fix wasn't needed. I asked it to confirm that plainly, and it added an integration test that forces the worst order instead of new code. ([phase 8 log](chat-logs/09-phase8-cart-claude-code.md))
-- **No fake controls.** Eneba shows a wishlist heart on product cards. Wishlist isn't built, so I told the agent to leave it off the cards and list it as future work, rather than add a button that does nothing. ([phase 11 log](chat-logs/12-phase11-homepage-ui-claude-code.md))
+- **No fake controls.** Eneba shows a wishlist heart on product cards. Wishlist isn't built, so I told the agent to leave it off the cards and list it as future work, rather than add a button that does nothing. The wishlist and its hearts came later, as a full feature in phase 18. ([phase 11 log](chat-logs/12-phase11-homepage-ui-claude-code.md))
 - **Keep it a known limit.** I asked what happens if two people run the seed at once. The agent offered a transaction; I had it noted as a known limit instead, since only I run the seed. ([phase 2 log](chat-logs/03-phase2-seed-data-claude-code.md))
 
 **Chat logs** (full prompts and responses):
@@ -278,3 +280,4 @@ I built this with **Claude Code in VS Code** (Claude Sonnet 4.6), phase by phase
 | [16-phase15](chat-logs/16-phase15-checkout-claude-code.md) | Checkout, payment, orders |
 | [17-phase16](chat-logs/17-phase16-deploy-claude-code.md) | Deploy |
 | 18-phase17 _(TODO: export this session)_ | Polish, README, assignment check |
+| 19-phase18 _(TODO: export this session)_ | Wishlist and categories drawer |

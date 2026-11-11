@@ -53,7 +53,8 @@ func EnsureIndexes(ctx context.Context, database *mongo.Database) error {
 			idx(bson.D{{Key: "status", Value: 1}, {Key: "reservedUntil", Value: 1}}),
 			idx(bson.D{{Key: "orderId", Value: 1}}),
 		},
-		"carts": {idx(bson.D{{Key: "userId", Value: 1}}, unique)},
+		"carts":     {idx(bson.D{{Key: "userId", Value: 1}}, unique)},
+		"wishlists": {idx(bson.D{{Key: "userId", Value: 1}}, unique)},
 		"orders": {
 			idx(bson.D{{Key: "userId", Value: 1}, {Key: "createdAt", Value: -1}}),
 			idx(bson.D{{Key: "status", Value: 1}, {Key: "reservedUntil", Value: 1}}),

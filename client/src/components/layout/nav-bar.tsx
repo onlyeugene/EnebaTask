@@ -1,5 +1,5 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { Menu } from "lucide-react";
 
 // Fixed shortcuts into the store, like Eneba's nav bar. They are site
 // navigation, not homepage content, so they live here and not in a block.
@@ -17,18 +17,16 @@ const LINKS = [
 // Eneba's nav link: 14px, weight 600, line-height 1, 10px padding.
 const LINK = "nav-link-hover px-2.5 py-4 text-sm font-semibold leading-none text-text-secondary";
 
-export function NavBar() {
+// `categories` is the "Categories" button with its drawer (features/store),
+// passed in by the (shop) layout: layout components never import features.
+export function NavBar({ categories }: { categories: ReactNode }) {
   return (
-    <nav className="bg-brand-dark" aria-label="Categories">
+    <nav className="bg-brand-dark" aria-label="Shortcuts">
       {/* Scrolls sideways on small screens instead of wrapping. px-1.5 plus
           each link's 10px padding lines the first label up with the logo. */}
       <ul className="mx-auto flex h-12.5 max-w-page items-center gap-1 overflow-x-auto whitespace-nowrap px-1.5">
-        <li>
-          <Link href="/store" className={`flex items-center gap-2 ${LINK}`}>
-            <Menu className="size-5" aria-hidden />
-            Categories
-          </Link>
-        </li>
+        {/* Sticky, so on phones "Categories" stays in reach while the rest scrolls. */}
+        <li className="sticky left-0 z-10 bg-brand-dark">{categories}</li>
         {LINKS.map((l) => (
           <li key={l.href}>
             <Link href={l.href} className={`block ${LINK}`}>

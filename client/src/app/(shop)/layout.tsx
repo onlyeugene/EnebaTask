@@ -4,12 +4,19 @@ import { Footer } from "@/components/layout/footer";
 import { SearchBox } from "@/features/search/components/search-box";
 import { CartPopover } from "@/features/cart/components/cart-popover";
 import { AccountMenu } from "@/features/auth/components/account-menu";
+import { WishlistLink } from "@/features/wishlist/components/wishlist-link";
+import { CategoriesDrawer } from "@/features/store/components/categories-drawer";
 
 export default function ShopLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
-      <Header search={<SearchBox />} cart={<CartPopover />} account={<AccountMenu />} />
-      <NavBar />
+      <Header
+        search={<SearchBox />}
+        wishlist={<WishlistLink />}
+        cart={<CartPopover />}
+        account={<AccountMenu />}
+      />
+      <NavBar categories={<CategoriesDrawer />} />
       <main className="flex-1">{children}</main>
       <Footer />
     </div>

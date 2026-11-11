@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/client";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { ProductCard } from "@/components/ui/product-card";
+import { useWishlist } from "@/features/wishlist/hooks/use-wishlist";
 import { CardSkeleton } from "@/components/ui/skeleton";
 import { useAddCheapest } from "@/features/product/hooks/use-add-cheapest";
 import { useStoreParams } from "../hooks/use-store-params";
@@ -15,6 +16,7 @@ import { useStoreParams } from "../hooks/use-store-params";
 export function ProductResults({ query }: { query: UseQueryResult<ProductList> }) {
   const { q, clear } = useStoreParams();
   const addCheapest = useAddCheapest();
+  const wishlist = useWishlist();
 
   // As on the home page: while a Retry runs, show the skeleton, not the old error.
   if (query.isPending || (query.isError && query.isFetching)) {
@@ -62,7 +64,13 @@ export function ProductResults({ query }: { query: UseQueryResult<ProductList> }
   return (
     <Grid busy={query.isPlaceholderData}>
       {query.data.items.map((p) => (
-        <ProductCard key={p.id} product={p} onAddToCart={addCheapest} />
+        <ProductCard
+                  key={p.id}
+                  product={p}
+                  onAddToCart={addCheapest}
+                  wishlisted={wishlist.has(p.id)}
+                  onToggleWishlist={wishlist.toggle}
+                />
       ))}
     </Grid>
   );

@@ -1,14 +1,12 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
-import { Heart } from "lucide-react";
 import { Logo } from "./logo";
 
-type Props = { search: ReactNode; cart: ReactNode; account: ReactNode };
+type Props = { search: ReactNode; wishlist: ReactNode; cart: ReactNode; account: ReactNode };
 
-// Server component. `search` (SearchBox), `cart` (CartPopover) and `account`
+// Server component. `search` (SearchBox), `wishlist` (WishlistLink), `cart` (CartPopover) and `account`
 // (AccountMenu: "Log in | Register", or the user's menu) come from features
 // and are passed in by the (shop) layout: layout components never import features.
-export function Header({ search, cart, account }: Props) {
+export function Header({ search, wishlist, cart, account }: Props) {
   return (
     <header className="bg-brand">
       {/* `relative`: the cart popover is placed against this row. */}
@@ -29,10 +27,7 @@ export function Header({ search, cart, account }: Props) {
           className="-mr-2.5 ml-auto flex shrink-0 items-center gap-1"
           aria-label="Account"
         >
-          <Link href="/wishlist" aria-label="Wishlist" className="link-hover p-2.5">
-            <Heart className="size-7" strokeWidth={1.75} />
-          </Link>
-
+          {wishlist}
           {cart}
           {account}
         </nav>

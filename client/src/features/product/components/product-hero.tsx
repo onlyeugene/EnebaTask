@@ -4,6 +4,7 @@ import type { ProductDetail, Region } from "@/types/api";
 import { API_URL } from "@/lib/api-url";
 import { platformLabel } from "@/lib/format";
 import { PlatformIcon } from "@/components/ui/platform-icon";
+import { WishlistToggle } from "@/features/wishlist/components/wishlist-toggle";
 
 const REGION_TEXT: Record<Region, { title: string; where: string }> = {
   global: { title: "Global", where: "anywhere in the world" },
@@ -38,7 +39,10 @@ export function ProductHero({ product, onShowGuide }: Props) {
             Cashback deal
           </span>
         )}
-        <h1 className="mt-3 text-3xl font-extrabold">{product.name}</h1>
+        <div className="mt-3 flex items-start justify-between gap-4">
+          <h1 className="text-3xl font-extrabold">{product.name}</h1>
+          <WishlistToggle product={product} />
+        </div>
 
         <ul className="mt-8 grid gap-6 md:grid-cols-2">
           <Fact icon={<CircleCheck className="size-10 text-teal" strokeWidth={1.5} />} title={region.title}>
