@@ -8,8 +8,9 @@ type Props = {
   active: boolean;
   onClick: () => void;
   productName: string;
-  // Must set the display (`flex`, or `hidden can-hover:flex`): it isn't set
-  // here, because two display classes on one element fight over the order.
+  // Must set the display (`flex`, or `hidden can-hover:flex`) and the position
+  // (`relative` or `absolute`). Neither is set here: two classes for the same
+  // property on one element fight over CSS order, not over which came last.
   className: string;
 };
 
@@ -25,7 +26,7 @@ export function WishlistButton({ active, onClick, productName, className }: Prop
       aria-label={`Wishlist ${productName}`}
       title={active ? "Remove from wishlist" : "Add to wishlist"}
       onClick={onClick}
-      className={`group/heart relative h-14 w-11 items-start justify-center pt-2.5 ${className}`}
+      className={`group/heart h-14 w-11 items-start justify-center pt-2.5 ${className}`}
     >
       <span
         aria-hidden

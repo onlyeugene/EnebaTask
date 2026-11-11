@@ -78,17 +78,19 @@ export function ProductCard({ product, onAddToCart, wishlisted = false, onToggle
 
       {/* A sibling of the link, like the buttons below, so a click on it never
           opens the product page (and a button inside a link is invalid HTML).
-          Not saved: only shown while the card is hovered or has keyboard focus,
-          and not rendered at all on touch screens. Saved: always shown. */}
+          Saved: always shown. Not saved: on mouse devices only while the card is
+          hovered or has keyboard focus; on touch screens always shown, since
+          there is no hover to reveal it. The hover rules all carry `can-hover:`,
+          so on a mouse device they come after the plain opacity-0 in the CSS. */}
       {onToggleWishlist && (
         <WishlistButton
           active={wishlisted}
           onClick={() => onToggleWishlist(product)}
           productName={product.name}
-          className={`absolute top-0 right-2 ${
+          className={`absolute top-0 right-2 flex ${
             wishlisted
-              ? "flex"
-              : "hidden opacity-0 can-hover:flex group-hover:opacity-100 group-focus-within:opacity-100"
+              ? ""
+              : "can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:group-focus-within:opacity-100"
           }`}
         />
       )}

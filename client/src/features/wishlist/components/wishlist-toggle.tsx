@@ -12,7 +12,7 @@ export function WishlistToggle({ product }: { product: ProductCard }) {
       active={wishlist.has(product.id)}
       onClick={() => wishlist.toggle(product)}
       productName={product.name}
-      className="flex shrink-0"
+      className="relative flex shrink-0"
     />
   );
 }

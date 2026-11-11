@@ -22,6 +22,10 @@ export function CategoryGridBlock({ entry, fail }: { entry: LayoutEntry; fail: b
       {({ data, title }) => (
         <section className="mx-auto max-w-page px-4">
           <h2 className="mb-6 text-3xl font-extrabold">{title}</h2>
+          {/* Same line as an empty rail (no product in stock at all). */}
+          {data.categories.length === 0 && (
+            <p className="text-base text-text-muted">Nothing here right now. Check back soon.</p>
+          )}
           <div className={GRID}>
             {data.categories.slice(0, shown).map((c) => (
               // White at low opacity stays visible on either band color.
