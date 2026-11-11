@@ -1,0 +1,45 @@
+# Render Blueprint for the Go API. The frontend is on Vercel, not here.
+# Secrets are never written in this file: `sync: false` makes Render ask for
+# the value once, when the Blueprint is created; `generateValue` lets Render
+# make a random one that never leaves Render.
+services:
+  - type: web
+    name: eugene-api
+    runtime: docker
+    plan: free
+    # Can't be changed after creation. Pick the one nearest the Atlas cluster's
+    # region: oregon, ohio, virginia, frankfurt or singapore.
+    region: frankfurt
+    # Paths are relative to the repo root. The build only sees server/.
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: ./server
+    # Client-only commits don't redeploy the API.
+    buildFilter:
+      paths:
+        - server/**
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: MONGODB_DB
+        value: eneba_prod
+      - key: MONGODB_URI
+        sync: false
+      # 32 random bytes, base64 (44 chars). Config needs at least 32 bytes.
+      - key: JWT_SECRET
+        generateValue: true
+      # First deploy: http://localhost:3000 (it must not be empty).
+      # After Vercel: the exact production URL, e.g. https://<project>.vercel.app
+      - key: CORS_ORIGINS
+        sync: false
+      - key: JWT_ISSUER
+        value: eugene-api
+      - key: ACCESS_TOKEN_TTL
+        value: 15m
+      - key: REFRESH_TOKEN_TTL
+        value: 720h
+      - key: RESERVATION_TTL
+        value: 10m
+      - key: BCRYPT_COST
+        value: "12"

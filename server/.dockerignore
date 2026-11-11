@@ -1,0 +1,9 @@
+# Keep secrets and local build output out of the image.
+.env
+.env.*
+!.env.example
+tmp/
+bin/
+.air.toml
+Dockerfile
+.dockerignore
