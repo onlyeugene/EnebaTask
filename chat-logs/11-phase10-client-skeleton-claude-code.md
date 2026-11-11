@@ -776,13 +776,13 @@ nav bar share it.
 18 return (
 19 <nav className="bg-brand-dark" aria-label="Categories">
 20 - {/_ Scrolls sideways on small screens instead of wrapping - _/}  
- 21 - <ul className="mx-auto flex h-[50px] max-w-page items-cen
+ 21 - <ul className="mx-auto flex h-12.5 max-w-page items-cen
          -ter gap-6 overflow-x-auto whitespace-nowrap px-4 text-base">  
  20 + {/_ Scrolls sideways on small screens instead of wrapping
 +. px-1.5 plus  
  21 + each link's 10px padding lines the first label up wit
 +h the logo. _/}  
- 22 + <ul className="mx-auto flex h-[50px] max-w-page items-cen
+ 22 + <ul className="mx-auto flex h-12.5 max-w-page items-cen
          +ter gap-1 overflow-x-auto whitespace-nowrap px-1.5">  
  23 <li>
 23 - <Link href="/store" className="flex items-center gap-
@@ -828,7 +828,7 @@ the visible spacing stays about the same.
 . px-1.5 plus
 24 each link's 10px padding lines the first label up wit
 h the logo. _/}
-25 - <ul className="mx-auto flex h-[50px] max-w-page items-cen
+25 - <ul className="mx-auto flex h-12.5 max-w-page items-cen
          -ter gap-1 overflow-x-auto whitespace-nowrap px-1.5">  
  25 + <ul className="mx-auto flex h-12.5 max-w-page items-cente
          +r gap-1 overflow-x-auto whitespace-nowrap px-1.5">  

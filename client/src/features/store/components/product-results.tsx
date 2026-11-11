@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { ProductCard } from "@/components/ui/product-card";
 import { CardSkeleton } from "@/components/ui/skeleton";
+import { useAddCheapest } from "@/features/product/hooks/use-add-cheapest";
 import { useStoreParams } from "../hooks/use-store-params";
 
 // The grid with its loading, error and empty states.
 export function ProductResults({ query }: { query: UseQueryResult<ProductList> }) {
   const { q, clear } = useStoreParams();
+  const addCheapest = useAddCheapest();
 
   // As on the home page: while a Retry runs, show the skeleton, not the old error.
   if (query.isPending || (query.isError && query.isFetching)) {
@@ -60,7 +62,7 @@ export function ProductResults({ query }: { query: UseQueryResult<ProductList> }
   return (
     <Grid busy={query.isPlaceholderData}>
       {query.data.items.map((p) => (
-        <ProductCard key={p.id} product={p} />
+        <ProductCard key={p.id} product={p} onAddToCart={addCheapest} />
       ))}
     </Grid>
   );
