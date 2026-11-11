@@ -1,7 +1,6 @@
 import type { ErrorBody, TokenPair } from "@/types/api";
+import { API_URL } from "./api-url";
 import { clearTokens, getTokens, setTokens } from "./tokens";
-
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 // Thrown for every non-2xx response. `body` keeps the whole JSON, because some
 // errors carry more than `error`: 402 has `order`, 409 OUT_OF_STOCK has `details`.

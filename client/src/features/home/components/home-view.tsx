@@ -1,9 +1,16 @@
-// Placeholder until phase 11, which renders the homepage blocks from the API.
+import { Suspense } from "react";
+import { HomeBlocks, HomeSkeleton } from "./home-blocks";
+
+// Server component: the static frame. All content comes from <HomeBlocks />.
+// Suspense is required by Next because HomeBlocks reads the URL
+// (useSearchParams), which is only known in the browser on a static page.
 export function HomeView() {
   return (
-    <section className="mx-auto max-w-page px-4 py-10">
-      <h1 className="text-3xl font-extrabold">Welcome to Eugene</h1>
-      <p className="mt-2 text-base text-text-secondary">Homepage blocks come in phase 11.</p>
-    </section>
+    <div>
+      <h1 className="sr-only">Eugene: game keys, gift cards and software</h1>
+      <Suspense fallback={<HomeSkeleton />}>
+        <HomeBlocks />
+      </Suspense>
+    </div>
   );
 }

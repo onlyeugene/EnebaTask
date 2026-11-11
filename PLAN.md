@@ -116,7 +116,7 @@ MongoDB Atlas M0
 
 ```js
 {
-  _id, key: "hero-main", type: "hero",            // hero | category_row | bestsellers | deals | new_releases | gift_cards
+  _id, key: "hero-main", type: "hero",            // hero | category_row | category_grid | bestsellers | deals | new_releases | gift_cards
   title: "", order: 10, active: true,
   config: { /* per type: banners for hero, limit/filters for rails */ }
 }
@@ -277,6 +277,7 @@ type BlockService interface {
 registry := map[string]home.BlockService{
     "hero":         Hero{},                                       // banners from block.config
     "category_row": Categories{catalog},                          // counts from the store's filter aggregation
+    "category_grid": Categories{catalog},                         // same data, drawn as genre tiles
     "bestsellers":  Rail{catalog, "bestselling", nil, "/store?sort=bestselling"},
     "deals":        Rail{catalog, "discount", nil, "/store?sort=discount"},     // + minDiscountPct 20 from config
     "new_releases": Rail{catalog, "newest", nil, "/store?sort=newest"},
@@ -291,7 +292,7 @@ registry := map[string]home.BlockService{
 
 - `app/page.tsx` is a server component. It renders the static page frame and one client component, `<HomeBlocks />`.
 - `<HomeBlocks />` runs `useQuery(["homepage"])` for the layout, then maps each entry to a component by `type`:
-  `hero → HeroBlock`, `category_row → CategoryRowBlock`, the four rail types → `ProductRailBlock`.
+  `hero → HeroBlock`, `category_row → CategoryRowBlock`, `category_grid → CategoryGridBlock`, the four rail types → `ProductRailBlock`.
 - Each block component runs its own `useQuery(["homepage-block", id])` and renders its own skeleton (shaped like the screenshots: dark purple card placeholders), its own error box with a "Retry" button, and its own content.
 - Block queries use `retry: 1`. TanStack Query's default is 3 retries with growing delays, so a broken block would sit on its skeleton for several seconds before showing the error. One retry covers a brief network blip; after that the user gets the error and the Retry button.
 - Each block is also wrapped in a small React error boundary, so a render bug in one block doesn't blank the page.
@@ -525,7 +526,7 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │
    │  ├─ features/                # feature slices: each owns its components, hooks, api calls
    │  │  ├─ home/
-   │  │  │  ├─ components/        # home-blocks.tsx, hero-block.tsx, category-row-block.tsx, product-rail-block.tsx, block-shell.tsx
+   │  │  │  ├─ components/        # home-view.tsx, home-blocks.tsx, hero-block.tsx, category-row-block.tsx, category-grid-block.tsx, category-icon.tsx, product-rail-block.tsx, block-shell.tsx, scroll-row.tsx
    │  │  │  ├─ hooks/             # use-homepage.ts, use-block.ts
    │  │  │  └─ api.ts             # getHomepageLayout, getBlock
    │  │  ├─ store/
@@ -578,6 +579,7 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │     └─ footer.tsx         # server: demo disclaimer
    │  │
    │  ├─ lib/
+   │  │  ├─ api-url.ts            # API base URL, so components/ui can build cover URLs without client.ts
    │  │  ├─ client.ts             # apiFetch + single-flight refresh across tabs
    │  │  ├─ tokens.ts             # read/write/clear tokens in localStorage
    │  │  ├─ query-client.ts       # TanStack Query client setup
@@ -711,7 +713,7 @@ Trade-off we accept: localStorage tokens can be read by any script that runs on 
 
 ### Stretch (only if time allows)
 1. Seller offers: `POST /api/seller/offers` with key upload, a `role: "seller"` on users.
-2. Wishlist (heart on cards, `wishlists` collection).
+2. Wishlist (heart on cards, `wishlists` collection). See future improvement 14 for the card heart.
 3. "Recently viewed" block (client-only, localStorage).
 
 ---
@@ -733,7 +735,7 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | 8 ✅ | Cart API: quote, get, put, delete, merge | curl flow: merge → put → get shows live prices |
 | 9 ✅ | Orders: reserve transaction with expiry-aware claim, simulated pay, cleanup job, list/detail, `claim_integration_test.go` | `go test ./internal/orders/...` green (unit only); `go test -tags integration ./internal/orders/...` → all 4 integration tests green (plus 2 more: decline then pay, and a new order replacing the user's pending one); decline puts stock back and recounts immediately |
 | 10 ✅ | Client skeleton: create-next-app (it refuses a folder with unknown files, so move `client/.env.example` aside and put it back after), Tailwind tokens, Metropolis font, `(shop)` layout with Header/Footer (server), Providers, `apiFetch` with single-flight refresh | Page renders with Eneba header and footer; demo disclaimer in footer |
-| 11 | Homepage client: `HomeBlocks`, hero, category row, product rails, `ProductCard` | Home matches screenshots; `?fail=<id>` breaks only one block |
+| 11 ✅ | Homepage client: `HomeBlocks`, hero, category row, product rails, `ProductCard` | Home matches screenshots; `?fail=<id>` breaks only one block |
 | 12 | Store + search (match `store.png`, `store2.png`): filter panel, sort, pagination in URL, header `SearchBox` with autocomplete | Typo in header → suggestions → Enter → results page |
 | 13 | Product page (match `product_details1–3.png`) + cart: offers table, add to cart, added-to-cart modal, guest Zustand cart, cart popover, cart page | Guest adds 2 items, reloads, cart is still there |
 | 14 | Auth UI: login/register (RHF + Zod, live password rules), `AccountMenu`, logout, merge on login (section 5b), `RequireAuth` | Guest cart survives login; same offer in both carts ends with the larger quantity; `/orders` redirects when logged out |
@@ -792,6 +794,16 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Client tokens in one key | `localStorage["eugene.tokens"]` holds `{accessToken, refreshToken}` as one JSON value, so a read never gets the access token of one pair and the refresh token of another while another tab writes. |
 | Tailwind tokens only | `globals.css` resets Tailwind's colors, fonts, text sizes, breakpoints and radii (`--color-*: initial` etc.) and defines only the notes.md values, so a default class like `bg-blue-500` or `rounded-lg` produces nothing. Breakpoints are Eneba's: `xs` 400, `sm` 600, `md` 930, `lg` 1200. |
 | Header search before phase 12 | A plain `<form action="/store">` with an input named `q`. Enter already opens `/store?q=...`, and it works without JS. Phase 12 swaps in the autocomplete `SearchBox`. The header has no wishlist heart, since wishlist isn't built. |
+| Homepage `?fail=` | `/?fail=<blockId>` takes the block's Mongo id (from `GET /api/homepage`), as the API does. Only that block's request gets `?fail=1`; the API honors it only when `APP_ENV=development`, so the client doesn't check the env itself. |
+| Block loading states | `BlockShell` owns the query, skeleton, error and Retry for every block type. While a Retry runs it shows the skeleton again, because TanStack keeps the old error until the new answer arrives and the error box would look stuck. A render bug is caught by an `ErrorBoundary` around each block, whose fallback is the same error box. |
+| Platform strip below the cover | On Eneba the platform strip and cashback pill lie over the bottom of the cover. Our seeded SVG covers print the title there, so the strip is its own 30px row under the cover. Moving the title to the top would need a cover change and a reseed. |
+| Category icons | The API sends a lucide icon name. The client imports only the icons the seed uses, in a small map, with `Tag` as fallback; importing lucide's full name map would ship every icon. |
+| Product card hover | The card is a fixed 224×470 box with `overflow: hidden`. On hover the strip and info move up 116px (the button panel's height) and the "Add to cart" / "View offers" panel moves in from below, both with a 200ms `translate`, so nothing around the card shifts. The buttons are siblings of the card's link, not inside it, because a button or link inside a link is invalid HTML. The panel is `display: none` unless the device can hover (`can-hover` variant in `globals.css`), so on touch screens it can't be tapped and a tap opens the product page. Keyboard users get the same slide when focus enters the card. "Add to cart" takes an `onAddToCart` prop and does nothing until phase 13 passes one. |
+| Scroll arrows | One `ScrollRow` with two looks. Categories: thin white chevrons at the row's edges, always shown while the row overflows, dimmed and disabled at either end, and a fade on the right while there is more to scroll. Rails: white squares at 30% opacity over the cards, shown only while the mouse is on the rail's section (`group/rail`), and hidden at either end. Both scroll one visible width per click and exist only on devices that can hover; touch users swipe. With 8 categories the row fits from about 1030px up, so its arrows only show below that. |
+| Homepage bands | Every block after the hero sits in a full-width band, alternating `brand-mid` (#5825cc) and `brand-darkest` (#1f0a4d); the content stays in the 1200px container. A `category_row` has no heading and leads into the block after it, so the two share one band (the row keeps only its top padding). The color comes from the block's place in the API layout, counting only blocks the client can draw and skipping the hero (which has its own colors), so adding, removing or reordering blocks in the db keeps the pattern. The 40px section spacing is padding inside each band, so the bands touch. Each band sets `--band` to its color, which the category row's edge fade uses. |
+| Categories grid | Eneba's "Categories" section at the bottom is a new block type, `category_grid`. It reuses the `Categories` service (same tiles, counts and store links as `category_row`), so the server change is one registry line plus a seeded block of the 11 genres. The client draws 7 tiles (one desktop row); "Load more" draws 7 more from data it already has, with no extra request. Tiles are white at 10% so they show on either band color. |
+| Product covers | Plain `<img>` of the API's `cover.svg`, not `next/image`, which refuses SVG unless `dangerouslyAllowSVG` is on. |
+| Footer spacing | The footer has no top margin. Each page ends with its own 40px of space (the home page through its last band's padding), so a colored band runs right up to the footer. A margin there showed as a 40px strip of page background under the last band. Pages built later need their own bottom padding. |
 | Footer | Eneba's footer opens with a light strip of payment logos. Brand logos are off limits, so the strip lists "Secure checkout / Keys delivered at once / Simulated payments only" with lucide icons, then a dark section with the demo disclaimer. |
 
 ## 12. Future improvements
@@ -811,3 +823,5 @@ Not planned for the 3 days. Listed so the trade-offs are on record.
 11. **Search fallback when Atlas Search fails.** Today a `$search` error is a `500`, so store search and autocomplete stop working while the rest of the store keeps going. Fix: when the aggregate errors, run a plain `find` with a case-insensitive, escaped prefix regex on `name` (`regexp.QuoteMeta` on each word) plus the same filters and sort. Partial names would still work; typos would not. It does not help when the index is missing, because then `$search` returns no results instead of an error; `/healthz` reports that case as `"search": "missing"`.
 12. **Rate limit counts that survive restarts.** httprate keeps its counts in memory, so a deploy, crash or free-tier sleep resets every IP to zero, and a second instance would keep its own counts. Accepted: a reset gives at most 10 more attempts, and bcrypt is the real defence. Per-IP limits also let someone with many IPs get 10 tries on each. Fix: keep counts in a shared store (`httprate-redis`, or a Mongo collection with a TTL index), and add a per-email limit on failed logins.
 13. **Rails skip the count.** Homepage rails call `products.Service.List`, which runs `CountDocuments` for a `total` the homepage never reads: 4 wasted queries per page load (about 16 db round trips in all). Accepted: cheap at 60 products, and reusing `List` keeps rails identical to the store. Fix: a `products.Service.Top(ctx, q)` that runs only the `Find`, used by `Rail`.
+14. **Wishlist heart on product cards.** On Eneba a heart shows in the top right of a card on hover. Left out because wishlist isn't built (stretch goal 2), and a heart that does nothing would be a fake control. Add it with the wishlist: an `onToggleWishlist` prop on `ProductCard`, shown with the same `can-hover` rule as the hover buttons. The gift card tag sits in the same corner, so one of them has to move.
+15. **Dark homepage band through a token.** The darker band is set to #3c1395 (kept by choice) but written as a raw `bg-[#3c1395]` in `home-blocks.tsx`, while its `--band` still points at `brand-darkest` (#1f0a4d). Two effects: it breaks the tokens-only styling rule, and the category row's edge fade would be the wrong color if that row ever lands on a dark band. #3c1395 is already the `brand-border` token. Fix: use `bg-brand-border [--band:var(--color-brand-border)]` in `BANDS`, change the comment above it ("darkest" → "darker"), note the second use of `brand-border` in `globals.css` and `design-reference/notes.md`, and change the "Homepage bands" row in section 11 from `brand-darkest` (#1f0a4d) to `brand-border` (#3c1395).

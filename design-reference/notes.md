@@ -8,6 +8,7 @@ Items marked (check) are inferred from screenshots, not confirmed in DevTools.
 
 ### Purples (main brand)
 - Page background: #4618ac
+- Lighter purple (homepage section bands, alternating with #4618ac): #5825cc
 - Dark purple (nav bar, darker sections): #351183 (check)
 - Darkest purple (card info area, deep surfaces): #1f0a4d (check)
 - Border purple: #3c1395

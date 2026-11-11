@@ -70,6 +70,7 @@ export type Suggestion = {
 export type BlockType =
   | "hero"
   | "category_row"
+  | "category_grid"
   | "bestsellers"
   | "deals"
   | "new_releases"

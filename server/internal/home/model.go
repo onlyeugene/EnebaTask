@@ -8,10 +8,12 @@ import (
 const (
 	TypeHero        = "hero"
 	TypeCategoryRow = "category_row"
-	TypeBestsellers = "bestsellers"
-	TypeDeals       = "deals"
-	TypeNewReleases = "new_releases"
-	TypeGiftCards   = "gift_cards"
+	// Same data as category_row, drawn as a grid of tiles (Eneba's "Categories" section).
+	TypeCategoryGrid = "category_grid"
+	TypeBestsellers  = "bestsellers"
+	TypeDeals        = "deals"
+	TypeNewReleases  = "new_releases"
+	TypeGiftCards    = "gift_cards"
 )
 
 // Block is one homepage section. Config differs per type, so it is kept raw

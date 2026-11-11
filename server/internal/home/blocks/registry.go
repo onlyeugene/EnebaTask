@@ -21,6 +21,8 @@ func Registry(catalog Catalog) map[string]home.BlockService {
 	return map[string]home.BlockService{
 		home.TypeHero:        Hero{},
 		home.TypeCategoryRow: Categories{catalog},
+		// The grid shows the same tiles in another layout, so it reuses the service.
+		home.TypeCategoryGrid: Categories{catalog},
 		// The four rails differ only in sort, type filter and "see all" link.
 		home.TypeBestsellers: Rail{catalog, products.SortBestselling, nil, "/store?sort=bestselling"},
 		home.TypeDeals:       Rail{catalog, products.SortDiscount, nil, "/store?sort=discount"},

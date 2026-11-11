@@ -171,6 +171,24 @@ var categoryConfig = home.CategoryConfig{
 	},
 }
 
+// Genre tiles for the "Categories" grid at the bottom of the homepage. Every genre in the seed
+// has a tile; the client shows one row and a "Load more" button for the rest.
+var genreGridConfig = home.CategoryConfig{
+	Categories: []home.CategoryLink{
+		{Slug: "action", Label: "Action", Icon: "Zap", Param: "genre", Value: "action"},
+		{Slug: "adventure", Label: "Adventure", Icon: "Compass", Param: "genre", Value: "adventure"},
+		{Slug: "rpg", Label: "RPG", Icon: "Swords", Param: "genre", Value: "rpg"},
+		{Slug: "strategy", Label: "Strategy", Icon: "Castle", Param: "genre", Value: "strategy"},
+		{Slug: "indie", Label: "Indie", Icon: "Sparkles", Param: "genre", Value: "indie"},
+		{Slug: "simulation", Label: "Simulation", Icon: "Plane", Param: "genre", Value: "simulation"},
+		{Slug: "puzzle", Label: "Puzzle", Icon: "Puzzle", Param: "genre", Value: "puzzle"},
+		{Slug: "racing", Label: "Racing", Icon: "Car", Param: "genre", Value: "racing"},
+		{Slug: "shooter", Label: "Shooter", Icon: "Crosshair", Param: "genre", Value: "shooter"},
+		{Slug: "horror", Label: "Horror", Icon: "Ghost", Param: "genre", Value: "horror"},
+		{Slug: "sports", Label: "Sports", Icon: "Trophy", Param: "genre", Value: "sports"},
+	},
+}
+
 type blockSeed struct {
 	key, typ, title string
 	order           int
@@ -184,4 +202,5 @@ var blockSeeds = []blockSeed{
 	{"deals", home.TypeDeals, "Top deals", 40, home.RailConfig{Limit: 10, MinDiscountPct: 20}},
 	{"new-releases", home.TypeNewReleases, "New releases", 50, home.RailConfig{Limit: 10}},
 	{"gift-cards", home.TypeGiftCards, "Gift cards", 60, home.RailConfig{Limit: 10}},
+	{"genres", home.TypeCategoryGrid, "Categories", 70, genreGridConfig},
 }
