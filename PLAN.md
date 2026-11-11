@@ -366,7 +366,7 @@ The test database is always `eneba_test`. The suite drops and recreates it befor
 
 Cart lines are keyed by **`offerId`**, not `productId`. The same game from two sellers is two separate lines, because they are different purchases at different prices.
 
-On login or register, the client sends the guest cart to `POST /api/cart/merge`, then clears the guest cart. Rules per guest line:
+On login or register, the client sends the guest cart to `POST /api/cart/merge` and clears the guest cart only after that call succeeds. If it fails, the guest lines stay, and the next page that shows the cart sends them again (safe, see below). Rules per guest line:
 
 | Case | Result |
 |---|---|
@@ -521,6 +521,7 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │  │     └─ [id]/
    │  │  │        └─ page.tsx     # step 3: order and key
    │  │  └─ (auth)/               # dark split layout (from login.png / signup.png)
+   │  │     ├─ layout.tsx         # logo, "Hi! It's nice to see you!", card slot, demo footer
    │  │     ├─ login/
    │  │     │  └─ page.tsx
    │  │     └─ register/
@@ -544,10 +545,13 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │  │  ├─ hooks/             # use-product.ts, use-offer-actions.ts (add, buy now), use-add-cheapest.ts (card "Add to cart"), use-gift-card-family.ts, use-also-viewed.ts
    │  │  │  └─ api.ts             # getProduct, listProducts
    │  │  ├─ cart/
-   │  │  │  ├─ components/        # cart-popover.tsx, cart-page.tsx, cart-line.tsx, cart-summary.tsx, cart-states.tsx, added-to-cart-modal.tsx
-   │  │  │  ├─ hooks/             # use-cart.ts (switches guest ↔ server cart by auth state), use-add-to-cart.ts, use-guest-cart-sync.ts
+   │  │  │  ├─ components/        # cart-popover.tsx, cart-page.tsx, cart-line.tsx, cart-summary.tsx, cart-states.tsx, added-to-cart-modal.tsx, merge-notice.tsx
+   │  │  │  ├─ hooks/             # use-cart.ts (switches guest ↔ server cart by auth state), use-guest-cart-view.ts, use-server-cart.ts, cart-view.ts (shared type), use-add-to-cart.ts, use-guest-cart-sync.ts
    │  │  │  ├─ store.ts           # Zustand guest cart + localStorage persist
    │  │  │  ├─ added-modal-store.ts # which "Added to cart" message is open
+   │  │  │  ├─ merge.ts           # mergeGuestCart: POST /merge, clear guest lines only on success
+   │  │  │  ├─ merge-notice-store.ts # how many lines the last merge dropped (one-time notice)
+   │  │  │  ├─ add-item.ts        # add one to the guest or server cart; used by every add button
    │  │  │  └─ api.ts             # quoteCart, getCart, upsertItem, removeItem, mergeCart
    │  │  ├─ checkout/
    │  │  │  ├─ components/        # checkout-view.tsx, payment-form.tsx, order-summary.tsx
@@ -555,19 +559,21 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │  │  ├─ schemas.ts         # Zod: payment card
    │  │  │  └─ api.ts             # createOrder, payOrder
    │  │  ├─ orders/
-   │  │  │  ├─ components/        # order-list.tsx, order-detail.tsx, key-reveal.tsx
+   │  │  │  ├─ components/        # orders-view.tsx (phase 14: behind RequireAuth), order-list.tsx, order-detail.tsx, key-reveal.tsx
    │  │  │  ├─ hooks/             # use-orders.ts, use-order.ts
    │  │  │  └─ api.ts             # getOrders, getOrder
    │  │  └─ auth/
-   │  │     ├─ components/        # login-form.tsx, register-form.tsx, password-rules.tsx, account-menu.tsx, require-auth.tsx
-   │  │     ├─ hooks/             # use-me.ts
-   │  │     ├─ schemas.ts         # Zod: login, register
-   │  │     └─ api.ts             # register, login, logout, me, refresh
+   │  │     ├─ components/        # login-form.tsx, register-form.tsx, auth-card.tsx, form-bits.tsx (show password, form error), password-rules.tsx, account-menu.tsx, require-auth.tsx
+   │  │     ├─ hooks/             # use-me.ts, use-sign-in.ts (tokens → merge → next), use-logout.ts
+   │  │     ├─ schemas.ts         # Zod: login, register, PASSWORD_RULES
+   │  │     ├─ next-path.ts       # safeNext: only same-site paths for ?next=
+   │  │     ├─ server-errors.ts   # API error → form field or form message
+   │  │     └─ api.ts             # register, login, logout, getMe (refresh lives in lib/client.ts)
    │  │
    │  ├─ components/
    │  │  ├─ ui/                   # shared design system only
    │  │  │  ├─ button.tsx
-   │  │  │  ├─ input.tsx
+   │  │  │  ├─ input.tsx          # auth field: dark box, placeholder, error line
    │  │  │  ├─ badge.tsx
    │  │  │  ├─ price.tsx          # cents → "€15.49" display
    │  │  │  ├─ product-card.tsx   # used in home, store, product page
@@ -819,11 +825,11 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Categories grid | Eneba's "Categories" section at the bottom is a new block type, `category_grid`. It reuses the `Categories` service (same tiles, counts and store links as `category_row`), so the server change is one registry line plus a seeded block of the 11 genres. The client draws 7 tiles (one desktop row); "Load more" draws 7 more from data it already has, with no extra request. Tiles are white at 10% so they show on either band color. |
 | Product covers | Plain `<img>` of the API's `cover.svg`, not `next/image`, which refuses SVG unless `dangerouslyAllowSVG` is on. |
 | Footer spacing | The footer has no top margin. Each page ends with its own 40px of space (the home page through its last band's padding), so a colored band runs right up to the footer. A margin there showed as a 40px strip of page background under the last band. Pages built later need their own bottom padding. |
-| Guest cart storage | Zustand `persist` under `localStorage["eugene.guest-cart"]`, holding only `{offerId, quantity}` lines. Names, prices and stock come from `POST /api/cart/quote` on every change (the items are the query key), so a guest never sees a stale price. The same limits as the server (20 lines, 1–10 each) are kept on add, so the cart can always be quoted and, in phase 14, merged. `skipHydration` stops the store reading localStorage during the first render, which would differ from the server HTML; `useGuestCartSync` (mounted once by the header's cart popover) reads it after mount, and again on the `storage` event, so a second tab doesn't overwrite the first tab's additions with its old list. The header badge counts the local lines, so it changes at once without a request. |
+| Guest cart storage | Zustand `persist` under `localStorage["eugene.guest-cart"]`, holding only `{offerId, quantity}` lines. Names, prices and stock come from `POST /api/cart/quote` on every change (the items are the query key), so a guest never sees a stale price. The same limits as the server (20 lines, 1–10 each) are kept on add, so the cart can always be quoted and, in phase 14, merged. `skipHydration` stops the store reading localStorage during the first render, which would differ from the server HTML; `useGuestCartSync` (mounted by the header's cart popover and the cart page) reads it after mount, and again on the `storage` event, so a second tab doesn't overwrite the first tab's additions with its old list. The header badge counts the local lines, so it changes at once without a request. |
 | Card "Add to cart" | A card knows the product, not its offers, and cart lines are offers. The click loads `GET /api/products/{slug}` (fresh, `staleTime: 0`) and adds the first in-stock offer, which is the cheapest because the API sorts that way, so the price added is the card's "From" price. No in-stock offer left → the modal says "Sold out". No new endpoint needed. The modal opens at once with a spinner ("Adding to cart…") while that request runs, then the same dialog swaps to the result, so the box doesn't close and reopen or change size. If the user closes it during the wait, the add still happens but the modal doesn't pop back up. The product page's "+cart" knows its offer, so it adds at once with no loader. |
 | Adding the same offer again | Raises its quantity by one (up to 10), like Eneba. A 21st line is refused and the modal says the cart is full. |
 | Quantity buttons | +/− step from the saved quantity, not from the quote on screen, so quick clicks while a new quote loads all count. The old quote stays on screen, dimmed, until the new one arrives. |
-| Product page "Buy now" | Adds one and opens `/cart`. Eneba goes to checkout, but ours needs sign-in (phase 14); the cart page's "Checkout now" leads on. The "+cart" button next to it adds and shows the "Added to cart" modal. |
+| Product page "Buy now" | Adds one and opens `/cart`. Eneba goes to checkout; ours goes through the cart, whose "Checkout now" leads on (checkout needs sign-in). The "+cart" button next to it adds and shows the "Added to cart" modal. |
 | Product page layout | Wider than the rest of the site, as on Eneba: `max-w-wide` (1600px, a `--container-wide` token next to `--container-page` 1200px). From 930px up: main column + 350px sidebar with a 30px gap. The sidebar cell spans both grid rows, so its `sticky` price box follows the whole main column. Below 930px it's one column, and grid order puts the price box between the hero and the offers. The price box shows the product's "From" price (old price, discount, cashback), rebuilt from live stock by the API, and a yellow "See offers" that scrolls to the list, where buying happens. "Recommended offers" holds the cheapest offer, "N other offers" the rest. Left out from Eneba: PayPal, Trustpilot, ScamAdviser, PC Mag and payment logos (real brands), wishlist heart and count, "people watching", region dropdown, "USD per €1" rates, trailer and reviews. The small "i" icons next to prices are left out too. Eneba's "Instant refunds" fact becomes "Key on your order page", since we don't refund. Per-offer discount uses the server's rule (`discountPct` in `format.ts`: whole percent, rounded down). Seller logos are a letter tile. |
 | Offer row hover | With a mouse, the "+cart" button is 0 wide until the row is hovered (or focused by keyboard), then opens from its right edge so it seems to slide out from behind "Buy now", and "Buy now" turns solid yellow with dark text. Touch screens can't hover, so they always show both. "Buy now" has its own classes, not the shared outline style: that style's own `hover:` background beat the row's yellow while the pointer was on the button, leaving dark text on a dark box. |
 | Gift card value tiles | Each value of a gift card is its own product, so the tiles are links. They come from `GET /api/products?type=gift_card&platform=…&region=…&inStock=false` (sold-out values keep their tile), sorted by MSRP, which for a gift card is its face value. Hidden for non-gift-cards, while loading, on error, and when the family has one value. The seed was widened to 14 cards in 4 families (Steam, PSN and Xbox Europe, Nintendo Europe), with PSN UK left as a single card to show the hidden case. The games come first in the seed's random order, so their data didn't change; the software's prices and stock did. |
@@ -832,6 +838,13 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Cart popover | Opens on click (like Eneba), closes on the X, Escape, a click outside, or any link inside it. It has no `relative` parent of its own: it's placed against the header row (`right-4`, max width = screen − 32px), so on a phone it stays on screen instead of hanging off the icon. |
 | Cart page | Uses the checkout layout (see "Checkout layout"). Its body has no Eneba screenshot, so it reuses the popover's line and totals pieces: lines on the left, totals box on the right (stacked below 930px). A line with a `problem` shows why, and "Checkout now" is replaced by a note until it's fixed (API.md, Cart). A `422` from the quote means the saved cart itself is broken, so the error offers "Empty cart" instead of Retry. |
 | Checkout layout | `/cart`, `/checkout` and `/orders/{id}` sit in the `(checkout)` group, as on Eneba: logo, a 3-step bar and "English EU \| EUR", no search or nav bar, and a footer with only the demo line, so nothing pulls the buyer away mid-purchase. The order history list (`/orders`) stays in `(shop)`. The step comes from the URL (`usePathname` in `checkout-steps.tsx`: `/checkout` 2, `/orders/…` 3, else 1), so pages pass nothing. Done steps: mint circle with a check; current: mint circle and mint label; later: purple circle, dimmed. Below 600px the labels and the language text hide, leaving circles and lines. This layout has no header cart popover, so the cart page calls `useGuestCartSync` itself to load the saved guest cart. |
+| Auth pages | `(auth)` layout from login.png / signup.png: brand-darkest page, logo top left, "Hi! It's nice to see you!" (a `text-display` token, 80px, measured from the screenshots; hidden below 930px), brand card on the right. Login is email + password instead of Eneba's magic link. Left out: Google/Facebook/Apple/Steam/Discord/Twitch/X buttons (real brands, and social login isn't built), the offers checkbox (no newsletter), and the terms line (replaced by a demo note). The footer is the checkout pages' demo line, since Eneba's links go to pages we don't have. Forms use React Hook Form + Zod with the server's rules (8–72 bytes, a digit or symbol by the same unicode classes), and the signup rules tick live as you type. Server errors go under their field (`fields`, `EMAIL_TAKEN`) or above the button (401, 429). `?next=` is read by the page (server) and passed in, so the form needs no `useSearchParams`; only paths on this site are kept (`//evil.com` → `/`). |
+| Who is signed in | `useMe` (`["me"]`, `GET /api/auth/me`), `null` with no request when no tokens are saved. `staleTime: Infinity`: only login, logout and the other-tab listener change it. Click handlers (add to cart) check the saved tokens instead, because they need the answer at once. While `/me` loads, the header keeps the account menu's space empty, so a signed-in user doesn't see "Log in" flash. |
+| After login | `useSignIn`: save tokens, drop any cached cart, set `["me"]`, `await` the merge, then `router.replace(next)`, so the page the user lands on already shows the merged cart. A failed merge doesn't block the login: the guest lines stay in localStorage, and `useGuestCartSync` (cart popover, cart page) sends them again when a signed-in page finds them. Repeating is safe because the server takes the larger quantity. On success only the lines that were sent are removed, so a line added in another tab while the request ran is kept for the next merge. Dropped lines show one notice (in memory only, so once). |
+| Signed-in cart on screen | `useCart` returns the server cart when signed in, the guest cart otherwise, with the same shape, so the popover, cart page and modal didn't change. +/− change the cached cart at once, then send `PUT`; the writes share a TanStack mutation `scope`, so they go one at a time in click order (`PUT` sets a number, so an older one landing last would win), and only the last answer is put on screen. Every add button goes through `addItem`, which for a signed-in user reads the cart fresh (`staleTime: 0`), then `PUT`s quantity + 1 (capped at 10); a `422` means the cart is full. |
+| Login or logout in another tab | `lib/providers.tsx` listens for the `storage` event on the tokens key and refetches `["me"]` and `["cart"]` when it goes from empty to set or back, so other tabs switch between guest and account cart without a reload. A token refresh changes the value without emptying it, so it's ignored. Known gap: logging into a different account in another tab without logging out first isn't noticed until a reload. |
+| Logout | Calls `/logout` (failure ignored), clears tokens, then a full page load to `/`, which drops every cached query of that user. |
+| `/orders` in phase 14 | Exists only behind `RequireAuth` (a guest goes to `/login?next=/orders`); phase 15 adds the list. |
 | Footer | Eneba's footer opens with a light strip of payment logos. Brand logos are off limits, so the strip lists "Secure checkout / Keys delivered at once / Simulated payments only" with lucide icons, then a dark section with the demo disclaimer. |
 
 ## 12. Future improvements
