@@ -1,7 +1,7 @@
 // Command seed fills a database with sellers, products, offers, keys and homepage blocks.
 //
 //	go run ./cmd/seed            # refuses if products already exist
-//	go run ./cmd/seed --reset    # clears catalog, carts and orders first
+//	go run ./cmd/seed --reset    # clears catalog, carts, orders and wishlists first
 //
 // After inserting, it creates (or updates) the Atlas Search index from atlas/products_search.json
 // and waits until it is READY.
@@ -28,7 +28,7 @@ import (
 )
 
 func main() {
-	reset := flag.Bool("reset", false, "delete catalog, carts and orders before seeding")
+	reset := flag.Bool("reset", false, "delete catalog, carts, orders and wishlists before seeding")
 	allowProd := flag.Bool("allow-prod", false, "allow seeding eneba_prod")
 	flag.Parse()
 
@@ -108,14 +108,14 @@ func run(reset, allowProd bool) error {
 	return nil
 }
 
-// clearCatalog empties the catalog and everything that points at it. Carts and orders go too,
-// because they hold offer and key ids that would no longer exist. Users and tokens stay,
+// clearCatalog empties the catalog and everything that points at it. Carts, orders and wishlists go too,
+// because they hold offer, key and product ids that would no longer exist. Users and tokens stay,
 // so a reset doesn't log anyone out.
 //
 // DeleteMany, not Drop: dropping a collection also drops its indexes, including the
 // Atlas Search index on products, which takes a while to rebuild.
 func clearCatalog(ctx context.Context, database *mongo.Database) error {
-	for _, coll := range []string{"keys", "offers", "products", "sellers", "homepage_blocks", "carts", "orders"} {
+	for _, coll := range []string{"keys", "offers", "products", "sellers", "homepage_blocks", "carts", "orders", "wishlists"} {
 		if _, err := database.Collection(coll).DeleteMany(ctx, bson.D{}); err != nil {
 			return fmt.Errorf("clear %s: %w", coll, err)
 		}

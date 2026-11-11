@@ -157,3 +157,8 @@ export type Order = {
 };
 
 export type PayInput = { cardNumber: string; expiry: string; cvc: string; name: string };
+
+// Wishlist
+export type WishlistEntry = { product: ProductCard; addedAt: string };
+export type Wishlist = { items: WishlistEntry[] };
+export type WishlistMergeInput = { productId: string; addedAt: string };

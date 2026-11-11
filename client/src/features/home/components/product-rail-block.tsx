@@ -5,6 +5,7 @@ import { Info } from "lucide-react";
 import type { LayoutEntry, RailData } from "@/types/api";
 import { buttonStyles } from "@/components/ui/button";
 import { ProductCard } from "@/components/ui/product-card";
+import { useWishlist } from "@/features/wishlist/hooks/use-wishlist";
 import { CardSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { useAddCheapest } from "@/features/product/hooks/use-add-cheapest";
 import { BlockShell } from "./block-shell";
@@ -14,6 +15,7 @@ import { ScrollRow } from "./scroll-row";
 // cards): the server decides which products and which "See all" link.
 export function ProductRailBlock({ entry, fail }: { entry: LayoutEntry; fail: boolean }) {
   const addCheapest = useAddCheapest();
+  const wishlist = useWishlist();
   return (
     <BlockShell<RailData> entry={entry} fail={fail} skeleton={<RailSkeleton />}>
       {({ data, title }) => (
@@ -29,7 +31,13 @@ export function ProductRailBlock({ entry, fail }: { entry: LayoutEntry; fail: bo
           ) : (
             <ScrollRow label={title} variant="rail">
               {data.products.map((p) => (
-                <ProductCard key={p.id} product={p} onAddToCart={addCheapest} />
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  onAddToCart={addCheapest}
+                  wishlisted={wishlist.has(p.id)}
+                  onToggleWishlist={wishlist.toggle}
+                />
               ))}
             </ScrollRow>
           )}

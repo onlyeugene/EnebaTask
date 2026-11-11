@@ -20,6 +20,7 @@ import (
 	"eugene/internal/platform/db"
 	"eugene/internal/products"
 	"eugene/internal/search"
+	"eugene/internal/wishlist"
 )
 
 func main() {
@@ -77,6 +78,7 @@ func main() {
 		home:     home.NewHandler(homeSvc, cfg.IsDev()),
 		cart:     cart.NewHandler(cartSvc, authHandler.RequireAuth),
 		orders:   orders.NewHandler(ordersSvc, authHandler.RequireAuth),
+		wishlist: wishlist.NewHandler(wishlist.NewService(wishlist.NewMongoRepo(database), time.Now), authHandler.RequireAuth),
 	}
 
 	// Tidy-up only: expires abandoned orders and recounts their stock. Stops with ctx on shutdown.
