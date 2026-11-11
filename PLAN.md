@@ -664,7 +664,8 @@ Known gap: reuse detection deletes refresh tokens, but access tokens already iss
 
 **Client fetch helper** (`lib/client.ts`):
 - `apiFetch(path, opts)` adds `Authorization` from localStorage.
-- On `401` (and the call wasn't `/auth/*`): `await refreshOnce()`, then retry the original request once.
+- On `401` (and the call wasn't `/auth/login`, `/auth/register` or `/auth/refresh`): `await refreshOnce()`, then retry the original request once. `/auth/me` and `/auth/logout` do refresh: they use the access token like any other call, and `useMe` on a protected page would otherwise treat an expired token as logged out.
+- Only a `401` from `/refresh` ends the session. A `429`, `5xx` or network error is thrown as an error and the tokens are kept, so a server blip never logs the user out.
 - `refreshOnce()` keeps one shared promise. Calls that fail while it's pending await the same promise; it's cleared when settled. So 5 parallel 401s → 1 refresh.
 - Across tabs: the refresh runs inside `navigator.locks.request("auth-refresh", …)`. After getting the lock, it re-reads localStorage; if another tab already rotated the token, it uses that one instead of refreshing again. Without this, two tabs could both send the same refresh token and trigger the reuse alarm, logging the user out.
 - Refresh fails → clear tokens, clear user query cache, `window.location.href = "/login?next=<current>"`.
@@ -731,7 +732,7 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | 7 ✅ | Homepage: layout endpoint, registry, 6 block services, `?fail=1` | Each block id returns data; `?fail=1` returns 503 |
 | 8 ✅ | Cart API: quote, get, put, delete, merge | curl flow: merge → put → get shows live prices |
 | 9 ✅ | Orders: reserve transaction with expiry-aware claim, simulated pay, cleanup job, list/detail, `claim_integration_test.go` | `go test ./internal/orders/...` green (unit only); `go test -tags integration ./internal/orders/...` → all 4 integration tests green (plus 2 more: decline then pay, and a new order replacing the user's pending one); decline puts stock back and recounts immediately |
-| 10 | Client skeleton: create-next-app (it refuses a folder with unknown files, so move `client/.env.example` aside and put it back after), Tailwind tokens, Metropolis font, `(shop)` layout with Header/Footer (server), Providers, `apiFetch` with single-flight refresh | Page renders with Eneba header and footer; demo disclaimer in footer |
+| 10 ✅ | Client skeleton: create-next-app (it refuses a folder with unknown files, so move `client/.env.example` aside and put it back after), Tailwind tokens, Metropolis font, `(shop)` layout with Header/Footer (server), Providers, `apiFetch` with single-flight refresh | Page renders with Eneba header and footer; demo disclaimer in footer |
 | 11 | Homepage client: `HomeBlocks`, hero, category row, product rails, `ProductCard` | Home matches screenshots; `?fail=<id>` breaks only one block |
 | 12 | Store + search (match `store.png`, `store2.png`): filter panel, sort, pagination in URL, header `SearchBox` with autocomplete | Typo in header → suggestions → Enter → results page |
 | 13 | Product page (match `product_details1–3.png`) + cart: offers table, add to cart, added-to-cart modal, guest Zustand cart, cart popover, cart page | Guest adds 2 items, reloads, cart is still there |
@@ -788,6 +789,10 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | New order replaces pending ones | `Create` first expires the user's other `pending_payment` orders and releases their keys, in the same transaction, before claiming. Without it, a user who goes back from checkout and starts again holds two sets of keys, and on low stock their own first order makes the second fail with `OUT_OF_STOCK`. It also caps what one account can hold at one order's worth (20 lines × 10). Released first, so the new order can claim the same keys. If the user pays the old order in another tab at the same moment, both transactions write the same order and keys, so Mongo makes one retry: either the payment wins and the old order is no longer pending, or it is expired and the payment gets `409`. Test: `TestNewOrderReplacesUsersPendingOrder`. |
 | Cleanup job | `go ordersSvc.RunCleanup(ctx, time.Minute)` in `main.go`: runs once at start, then every minute, at most 100 orders per run, and stops with the shutdown `ctx`. Each order goes through the same `expire` as a late payment. |
 | `golang.org/x/crypto` version | Pinned at v0.54. Newer versions need Go 1.26, which would raise the `go` line in go.mod and the toolchain the Dockerfile needs. |
+| Client tokens in one key | `localStorage["eugene.tokens"]` holds `{accessToken, refreshToken}` as one JSON value, so a read never gets the access token of one pair and the refresh token of another while another tab writes. |
+| Tailwind tokens only | `globals.css` resets Tailwind's colors, fonts, text sizes, breakpoints and radii (`--color-*: initial` etc.) and defines only the notes.md values, so a default class like `bg-blue-500` or `rounded-lg` produces nothing. Breakpoints are Eneba's: `xs` 400, `sm` 600, `md` 930, `lg` 1200. |
+| Header search before phase 12 | A plain `<form action="/store">` with an input named `q`. Enter already opens `/store?q=...`, and it works without JS. Phase 12 swaps in the autocomplete `SearchBox`. The header has no wishlist heart, since wishlist isn't built. |
+| Footer | Eneba's footer opens with a light strip of payment logos. Brand logos are off limits, so the strip lists "Secure checkout / Keys delivered at once / Simulated payments only" with lucide icons, then a dark section with the demo disclaimer. |
 
 ## 12. Future improvements
 
