@@ -58,6 +58,10 @@
   --text-xl--line-height: 22px;
   --text-3xl: 30px;
   --text-3xl--line-height: 37.5px;
+  /* Only the "Hi! It's nice to see you!" heading on the auth pages
+     (login.png, signup.png). Measured from the screenshots. */
+  --text-display: 80px;
+  --text-display--line-height: 90px;
 
   /* Eneba's four breakpoints */
   --breakpoint-*: initial;

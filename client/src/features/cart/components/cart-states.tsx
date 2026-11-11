@@ -27,12 +27,13 @@ export function CartLoading() {
   );
 }
 
-type ErrorProps = { error: Error; onRetry: () => void; onClear: () => void };
+type ErrorProps = { error: Error; onRetry: () => void; onClear?: () => void };
 
-// A 422 means the saved cart itself is broken (edited by hand, or saved by an
-// older version), so asking again won't help. Offer to empty it instead.
+// A 422 from the guest quote means the saved cart itself is broken (edited by
+// hand, or saved by an older version), so asking again won't help. Offer to
+// empty it instead. The server cart has no onClear.
 export function CartError({ error, onRetry, onClear }: ErrorProps) {
-  if (error instanceof ApiError && error.status === 422) {
+  if (onClear && error instanceof ApiError && error.status === 422) {
     return (
       <ErrorState
         message="Your saved cart couldn't be read."

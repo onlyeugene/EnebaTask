@@ -7,6 +7,7 @@ import { useGuestCartSync } from "../hooks/use-guest-cart-sync";
 import { CartLine } from "./cart-line";
 import { CartSummary } from "./cart-summary";
 import { CartError, CartLoading, EmptyCart } from "./cart-states";
+import { MergeNotice } from "./merge-notice";
 
 // There's no screenshot of Eneba's full cart page, so this reuses the
 // popover's pieces: lines on the left, totals in a box on the right.
@@ -21,6 +22,7 @@ export function CartPage() {
     <div className="mx-auto max-w-page px-4 pt-6 pb-10">
       {/* Hidden on screen, kept for screen readers as the page's title. */}
       <h1 className="sr-only">My shopping cart</h1>
+      <MergeNotice />
 
       {loading ? (
         <CartLoading />

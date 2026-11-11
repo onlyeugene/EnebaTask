@@ -9,6 +9,7 @@ import { AddedToCartModal } from "./added-to-cart-modal";
 import { CartLine } from "./cart-line";
 import { CartSummary } from "./cart-summary";
 import { CartError, CartLoading, EmptyCart } from "./cart-states";
+import { MergeNotice } from "./merge-notice";
 
 // The header's cart icon and the panel it opens (shopping_cart.png,
 // empty_cart.png). The (shop) layout passes it into the server Header, like
@@ -42,6 +43,7 @@ export function CartPopover() {
       <CartButton count={itemCount} open={open} onClick={() => setOpen((o) => !o)} />
       {open && <Panel onClose={() => setOpen(false)} />}
       <AddedToCartModal />
+      <MergeNotice />
     </div>
   );
 }

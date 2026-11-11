@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Heart, User } from "lucide-react";
+import { Heart } from "lucide-react";
 import { Logo } from "./logo";
 
-type Props = { search: ReactNode; cart: ReactNode };
+type Props = { search: ReactNode; cart: ReactNode; account: ReactNode };
 
-// Server component. `search` (SearchBox) and `cart` (CartPopover) come from
-// features and are passed in by the (shop) layout: layout components never
-// import features. "Log in | Register" becomes the AccountMenu in phase 14.
-export function Header({ search, cart }: Props) {
+// Server component. `search` (SearchBox), `cart` (CartPopover) and `account`
+// (AccountMenu: "Log in | Register", or the user's menu) come from features
+// and are passed in by the (shop) layout: layout components never import features.
+export function Header({ search, cart, account }: Props) {
   return (
     <header className="bg-brand">
       {/* `relative`: the cart popover is placed against this row. */}
@@ -34,16 +34,7 @@ export function Header({ search, cart }: Props) {
           </Link>
 
           {cart}
-          <div className="flex items-center text-base">
-            <User className="mx-1 size-7" strokeWidth={1.75} aria-hidden />
-            <Link href="/login" className="link-hover p-2.5">
-              Log in
-            </Link>
-            <span className="hidden text-text-muted xs:inline">|</span>
-            <Link href="/register" className="link-hover hidden p-2.5 xs:inline">
-              Register
-            </Link>
-          </div>
+          {account}
         </nav>
       </div>
     </header>

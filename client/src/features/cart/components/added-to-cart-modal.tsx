@@ -5,7 +5,7 @@ import { Check, CircleAlert, LoaderCircle, ShoppingCart } from "lucide-react";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useAddedModal, type AddOutcome } from "../added-modal-store";
-import { useGuestCart } from "../store";
+import { useCart } from "../hooks/use-cart";
 
 const PROBLEMS: Record<Exclude<AddOutcome, "added">, { title: string; text: string }> = {
   full: { title: "Your cart is full", text: "A cart holds up to 20 different offers." },
@@ -19,7 +19,7 @@ const PROBLEMS: Record<Exclude<AddOutcome, "added">, { title: string; text: stri
 // swaps its content, and min-h keeps the box the same size.
 export function AddedToCartModal() {
   const { outcome, close } = useAddedModal();
-  const count = useGuestCart((s) => s.items.reduce((n, i) => n + i.quantity, 0));
+  const { itemCount: count } = useCart();
   const loading = outcome === "loading";
   const problem = outcome && outcome !== "added" && !loading ? PROBLEMS[outcome] : null;
   const title = loading ? "Adding to cart…" : (problem?.title ?? "Added to cart");

@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import type { ProductCard } from "@/types/api";
 import { useAddedModal, type AddOutcome } from "@/features/cart/added-modal-store";
-import { useGuestCart } from "@/features/cart/store";
+import { addItem } from "@/features/cart/add-item";
 import { productQuery } from "./use-product";
 
 // "Add to cart" on a product card. A card knows the product, not its offers,
@@ -23,7 +23,7 @@ export function useAddCheapest() {
       const { offers } = await client.fetchQuery({ ...productQuery(product.slug), staleTime: 0 });
       // Offers come sorted by price with in-stock first, so the first in-stock one is cheapest.
       const offer = offers.find((o) => o.stock > 0);
-      outcome = offer ? useGuestCart.getState().add(offer.id) : "sold_out";
+      outcome = offer ? await addItem(client, offer.id) : "sold_out";
     } catch {
       outcome = "error";
     }
