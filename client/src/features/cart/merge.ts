@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { clearHeldOrder } from "@/features/checkout/held-order";
 import { mergeCart, SERVER_CART_KEY } from "./api";
 import { useMergeNotice } from "./merge-notice-store";
 import { useGuestCart } from "./store";
@@ -18,6 +19,7 @@ export async function mergeGuestCart(client: QueryClient) {
   const sent = useGuestCart.getState().items;
   if (sent.length === 0) return;
 
+  clearHeldOrder(); // the server cart is about to change; see checkout/held-order.ts
   const { cart, dropped } = await mergeCart(sent);
   client.setQueryData(SERVER_CART_KEY, cart);
 

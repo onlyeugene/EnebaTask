@@ -44,7 +44,7 @@ export function CartSummary({ cart, showViewCart = false }: Props) {
             Fix the marked items before checking out.
           </p>
         ) : (
-          // Checkout is built in phase 15; signing in is required there.
+          // Checkout needs sign-in; a guest is sent to /login and comes back.
           <Link href="/checkout" className={showViewCart ? buttonStyles.outline : buttonStyles.primary}>
             Checkout now
           </Link>

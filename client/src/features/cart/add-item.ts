@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/lib/client";
 import { getTokens } from "@/lib/tokens";
+import { clearHeldOrder } from "@/features/checkout/held-order";
 import { getCart, SERVER_CART_KEY, upsertItem } from "./api";
 import type { AddOutcome } from "./added-modal-store";
 import { MAX_QTY, useGuestCart } from "./store";
@@ -11,6 +12,7 @@ import { MAX_QTY, useGuestCart } from "./store";
 // needs the answer now. If the tokens are dead, apiFetch sends the user to /login.
 export async function addItem(client: QueryClient, offerId: string): Promise<AddOutcome> {
   if (!getTokens()) return useGuestCart.getState().add(offerId);
+  clearHeldOrder(); // the cart is about to change; see checkout/held-order.ts
 
   try {
     // PUT sets the quantity, so read it fresh first (staleTime 0): a number
