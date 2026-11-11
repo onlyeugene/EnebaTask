@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/*
+  Design tokens from design-reference/notes.md.
+  Each group starts with `initial` to drop Tailwind's defaults, so only these
+  values exist and a stray `bg-blue-500` or `rounded-lg` does nothing.
+*/
+@theme {
+  --color-*: initial;
+
+  /* Purples */
+  --color-brand: #4618ac; /* page background */
+  --color-brand-dark: #351183; /* nav bar, darker sections */
+  --color-brand-darkest: #1f0a4d; /* card info area, deep surfaces */
+  --color-brand-border: #3c1395;
+  --color-brand-light: #7a4edf; /* hover, accents */
+
+  /* Accents */
+  --color-yellow: #fad318; /* main CTA */
+  --color-mint: #63e3c2; /* cashback badge, card border */
+  --color-lime: #84e916; /* discount %, cashback amount */
+  --color-teal: #23c299; /* region: GLOBAL, EUROPE */
+  --color-pink: #e76a8c; /* region: UNITED STATES, UNITED KINGDOM */
+  --color-red: #eb002e; /* errors, cart count badge */
+  --color-red-pink: #d32252;
+  --color-red-dark: #99001f; /* error borders */
+
+  /* Text */
+  --color-white: #ffffff;
+  --color-text-soft: #ffffffd9;
+  --color-text-secondary: #dcd8e6;
+  --color-text-muted: #b3aac9;
+  --color-text-faint: #9385b2;
+  --color-ink: #1f0a4d; /* dark text on yellow or light surfaces */
+
+  /* Neutrals */
+  --color-surface-light: #efefef;
+  --color-divider: #ffffff1a;
+  --color-transparent: transparent;
+
+  --font-*: initial;
+  --font-sans: "Metropolis", Arial, Helvetica, sans-serif;
+
+  /* Sizes from notes.md, with their line heights */
+  --text-*: initial;
+  --text-2xs: 10px;
+  --text-2xs--line-height: 12px;
+  --text-xs: 12px;
+  --text-xs--line-height: 15px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-md: 15px;
+  --text-md--line-height: 22px;
+  --text-base: 16px;
+  --text-base--line-height: 24px;
+  --text-xl: 22px;
+  --text-xl--line-height: 22px;
+  --text-3xl: 30px;
+  --text-3xl--line-height: 37.5px;
+
+  /* Eneba's four breakpoints */
+  --breakpoint-*: initial;
+  --breakpoint-xs: 400px;
+  --breakpoint-sm: 600px;
+  --breakpoint-md: 930px;
+  --breakpoint-lg: 1200px;
+
+  /* Square corners everywhere; rounded-* utilities have no values */
+  --radius-*: initial;
+
+  --container-page: 1200px;
+}
+
+/*
+  Eneba's link hovers. Both only apply on devices that can really hover, so a
+  tap on a touch screen doesn't leave the colors stuck.
+*/
+
+/* Header row (wishlist, cart, language, log in): text turns yellow. */
+@utility link-hover {
+  transition: color 150ms ease-in-out;
+  @media (hover: hover) {
+    &:hover {
+      color: var(--color-yellow);
+    }
+  }
+}
+
+/*
+  Nav bar (Categories row): darker box and yellow text. The bar itself is
+  brand-dark, so the box uses brand-darkest; brand-dark would not show.
+*/
+@utility nav-link-hover {
+  transition:
+    color 150ms ease-in-out,
+    background-color 150ms ease-in-out;
+  @media (hover: hover) {
+    &:hover {
+      background-color: var(--color-brand-darkest);
+      color: var(--color-yellow);
+    }
+  }
+}
+
+body {
+  background: var(--color-brand);
+  color: var(--color-white);
+  font-family: var(--font-sans);
+}
