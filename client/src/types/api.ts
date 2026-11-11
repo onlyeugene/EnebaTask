@@ -46,7 +46,10 @@ export type Offer = {
   seller: { id: string; slug: string; name: string; rating: number; salesCount: number };
 };
 
-export type ProductList = { items: ProductCard[]; page: number; pageSize: number; total: number };
+// GET /api/products/{slug}. Offers come sorted by price, in-stock first.
+export type ProductPage = { product: ProductDetail; offers: Offer[] };
+
+export type ProductList ={ items: ProductCard[]; page: number; pageSize: number; total: number };
 
 export type FilterOption = { value: string; label: string; count: number };
 export type Filters = {

@@ -477,7 +477,7 @@ into their own row under the cover instead, so nothing hides the title.
 +. Our generated  
  53 + covers print the title there, so it sits below the co
 +ver instead. _/}  
- 54 + <div className="flex h-[30px] items-center justify-betwee
+ 54 + <div className="flex h-7.5 items-center justify-betwee
          +n gap-2 border-b border-divider pr-3">  
  55 + {product.cashbackPct > 0 ? <CashbackBadge /> : <span />
 +}  
@@ -530,8 +530,8 @@ card height, then check a phone-width view.
 10 return (
 11 <div
 12 aria-hidden
-13 - className="flex h-[458px] w-[224px] shrink-0 items-center - justify-center bg-brand-darkest"  
- 13 + className="flex h-[470px] w-[224px] shrink-0 items-center + justify-center bg-brand-darkest"  
+13 - className="flex h-114.5 w-56 shrink-0 items-center - justify-center bg-brand-darkest"  
+ 13 + className="flex h-117.5 w-56 shrink-0 items-center + justify-center bg-brand-darkest"  
  14 >
 15 <LoaderCircle className="size-9 animate-spin text-white" 
           strokeWidth={1.5} />

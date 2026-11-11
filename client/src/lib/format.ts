@@ -35,6 +35,13 @@ export function cashbackCents(priceCents: number, pct: number): number {
   return Math.floor((priceCents * pct) / 100);
 }
 
+// Same rule as the server's products.Summarize: whole percent, rounded down,
+// and 0 when the price is not below MSRP. Used for each offer on the product page.
+export function discountPct(originalCents: number, priceCents: number): number {
+  const saved = originalCents - priceCents;
+  return saved > 0 && originalCents > 0 ? Math.floor((saved * 100) / originalCents) : 0;
+}
+
 export function discountLabel(pct: number): string {
   return `-${pct}%`;
 }

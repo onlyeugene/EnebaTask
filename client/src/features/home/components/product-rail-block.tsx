@@ -6,12 +6,14 @@ import type { LayoutEntry, RailData } from "@/types/api";
 import { buttonStyles } from "@/components/ui/button";
 import { ProductCard } from "@/components/ui/product-card";
 import { CardSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { useAddCheapest } from "@/features/product/hooks/use-add-cheapest";
 import { BlockShell } from "./block-shell";
 import { ScrollRow } from "./scroll-row";
 
 // One component for all four rails (bestsellers, deals, new releases, gift
 // cards): the server decides which products and which "See all" link.
 export function ProductRailBlock({ entry, fail }: { entry: LayoutEntry; fail: boolean }) {
+  const addCheapest = useAddCheapest();
   return (
     <BlockShell<RailData> entry={entry} fail={fail} skeleton={<RailSkeleton />}>
       {({ data, title }) => (
@@ -27,7 +29,7 @@ export function ProductRailBlock({ entry, fail }: { entry: LayoutEntry; fail: bo
           ) : (
             <ScrollRow label={title} variant="rail">
               {data.products.map((p) => (
-                <ProductCard key={p.id} product={p} />
+                <ProductCard key={p.id} product={p} onAddToCart={addCheapest} />
               ))}
             </ScrollRow>
           )}

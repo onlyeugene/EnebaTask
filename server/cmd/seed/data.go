@@ -87,13 +87,16 @@ type giftCardSeed struct {
 	valueEUR         int
 }
 
+// Grouped in families (same platform and region, several values), so the
+// product page can show its value tiles. PSN UK stays a single card, to show
+// the page without them.
 var giftCardSeeds = []giftCardSeed{
-	{"steam", "europe", 20},
-	{"steam", "europe", 50},
-	{"psn", "europe", 25},
+	{"steam", "europe", 5}, {"steam", "europe", 10}, {"steam", "europe", 20},
+	{"steam", "europe", 50}, {"steam", "europe", 100},
+	{"psn", "europe", 10}, {"psn", "europe", 25}, {"psn", "europe", 50},
 	{"psn", "united_kingdom", 50},
-	{"xbox", "europe", 25},
-	{"nintendo", "europe", 35},
+	{"xbox", "europe", 10}, {"xbox", "europe", 25}, {"xbox", "europe", 50},
+	{"nintendo", "europe", 15}, {"nintendo", "europe", 35},
 }
 
 type softwareSeed struct {

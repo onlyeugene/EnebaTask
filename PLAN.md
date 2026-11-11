@@ -509,15 +509,17 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │  │  ├─ product/
    │  │  │  │  └─ [slug]/
    │  │  │  │     └─ page.tsx     # renders <ProductView />
-   │  │  │  ├─ cart/
-   │  │  │  │  └─ page.tsx
    │  │  │  └─ orders/
-   │  │  │     ├─ page.tsx
+   │  │  │     └─ page.tsx        # order history
+   │  │  ├─ (checkout)/           # stepper header + short footer: cart, checkout, order and key
+   │  │  │  ├─ layout.tsx
+   │  │  │  ├─ cart/
+   │  │  │  │  └─ page.tsx        # step 1
+   │  │  │  ├─ checkout/
+   │  │  │  │  └─ page.tsx        # step 2
+   │  │  │  └─ orders/
    │  │  │     └─ [id]/
-   │  │  │        └─ page.tsx
-   │  │  ├─ (checkout)/           # stepper header layout (from checkout.png)
-   │  │  │  └─ checkout/
-   │  │  │     └─ page.tsx
+   │  │  │        └─ page.tsx     # step 3: order and key
    │  │  └─ (auth)/               # dark split layout (from login.png / signup.png)
    │  │     ├─ login/
    │  │     │  └─ page.tsx
@@ -538,13 +540,14 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │  │  ├─ hooks/             # use-autocomplete.ts, use-debounce.ts
    │  │  │  └─ api.ts             # autocomplete
    │  │  ├─ product/
-   │  │  │  ├─ components/        # product-view.tsx, offer-row.tsx, added-to-cart-modal.tsx
-   │  │  │  ├─ hooks/             # use-product.ts
-   │  │  │  └─ api.ts             # getProduct
+   │  │  │  ├─ components/        # product-view.tsx, breadcrumbs.tsx, product-hero.tsx, price-box.tsx, value-picker.tsx, offer-list.tsx, offer-row.tsx, offer-price.tsx, add-button.tsx, also-viewed.tsx, product-details.tsx
+   │  │  │  ├─ hooks/             # use-product.ts, use-offer-actions.ts (add, buy now), use-add-cheapest.ts (card "Add to cart"), use-gift-card-family.ts, use-also-viewed.ts
+   │  │  │  └─ api.ts             # getProduct, listProducts
    │  │  ├─ cart/
-   │  │  │  ├─ components/        # cart-popover.tsx, cart-page.tsx, cart-line.tsx, cart-summary.tsx
-   │  │  │  ├─ hooks/             # use-cart.ts (switches guest ↔ server cart by auth state)
+   │  │  │  ├─ components/        # cart-popover.tsx, cart-page.tsx, cart-line.tsx, cart-summary.tsx, cart-states.tsx, added-to-cart-modal.tsx
+   │  │  │  ├─ hooks/             # use-cart.ts (switches guest ↔ server cart by auth state), use-add-to-cart.ts, use-guest-cart-sync.ts
    │  │  │  ├─ store.ts           # Zustand guest cart + localStorage persist
+   │  │  │  ├─ added-modal-store.ts # which "Added to cart" message is open
    │  │  │  └─ api.ts             # quoteCart, getCart, upsertItem, removeItem, mergeCart
    │  │  ├─ checkout/
    │  │  │  ├─ components/        # checkout-view.tsx, payment-form.tsx, order-summary.tsx
@@ -569,11 +572,16 @@ The merge runs in a transaction (read the cart, merge in Go, write it back), so 
    │  │  │  ├─ price.tsx          # cents → "€15.49" display
    │  │  │  ├─ product-card.tsx   # used in home, store, product page
    │  │  │  ├─ skeleton.tsx
-   │  │  │  ├─ modal.tsx
+   │  │  │  ├─ modal.tsx          # native <dialog>
+   │  │  │  ├─ platform-icon.tsx  # lucide icon per platform (card, product page)
    │  │  │  ├─ error-state.tsx
    │  │  │  └─ error-boundary.tsx
    │  │  └─ layout/               # shell components (mostly server)
+   │  │     ├─ logo.tsx           # server: wordmark linking home, used by both headers
    │  │     ├─ header.tsx         # server: logo + static nav links shell
+   │  │     ├─ checkout-header.tsx # server: logo, steps, "English EU | EUR"
+   │  │     ├─ checkout-steps.tsx # client: 3-step bar, step read from the URL
+   │  │     ├─ checkout-footer.tsx # server: demo disclaimer line only
    │  │     ├─ nav-bar.tsx        # server: categories nav
    │  │     ├─ cart-button.tsx    # client: cart icon + count badge
    │  │     └─ footer.tsx         # server: demo disclaimer
@@ -743,6 +751,8 @@ Each phase ends with a check you can run. Tag `✅` in this file when done.
 | 16 | Deploy: Dockerfile, Render service, Atlas `eneba_prod` seed + search index, Vercel project, CORS | Full flow works on the public URLs |
 | 17 | Polish + check: responsive pass, empty states, README (setup, decisions, limits), check every line of ASSIGNMENT.md | Every assignment item ticked in README |
 
+| 15b | **Parked until after phase 15** (owner's call): "Cheap games" promo page on the block system. A `page` field on `homepage_blocks` (`"home"` by default) and `?page=` on the layout endpoint; route `/deals/cheap-games`; a `promo_hero` block (heading, text, yellow button, generated SVG collage of our covers); rails reusing the `Rail` service with a max price ("Games / Xbox games / Nintendo games / Gift cards under €10", each "Show all" to the same store filters); same band alternation; seeded blocks; nav "Cheap Games" points there. No Trustpilot or real brands. Ask the owner first if it changes existing homepage behaviour. | Page renders from seeded blocks; homepage unchanged |
+
 If behind schedule, cut in this order: category row block → gift cards block → cart popover (keep cart page) → order history list (keep order page).
 
 ---
@@ -803,12 +813,25 @@ If behind schedule, cut in this order: category row block → gift cards block �
 | Block loading states | `BlockShell` owns the query, skeleton, error and Retry for every block type. While a Retry runs it shows the skeleton again, because TanStack keeps the old error until the new answer arrives and the error box would look stuck. A render bug is caught by an `ErrorBoundary` around each block, whose fallback is the same error box. |
 | Platform strip below the cover | On Eneba the platform strip and cashback pill lie over the bottom of the cover. Our seeded SVG covers print the title there, so the strip is its own 30px row under the cover. Moving the title to the top would need a cover change and a reseed. |
 | Category icons | The API sends a lucide icon name. The client imports only the icons the seed uses, in a small map, with `Tag` as fallback; importing lucide's full name map would ship every icon. |
-| Product card hover | The card is a fixed 224×470 box with `overflow: hidden`. On hover the strip and info move up 116px (the button panel's height) and the "Add to cart" / "View offers" panel moves in from below, both with a 200ms `translate`, so nothing around the card shifts. The buttons are siblings of the card's link, not inside it, because a button or link inside a link is invalid HTML. The panel is `display: none` unless the device can hover (`can-hover` variant in `globals.css`), so on touch screens it can't be tapped and a tap opens the product page. Keyboard users get the same slide when focus enters the card. "Add to cart" takes an `onAddToCart` prop and does nothing until phase 13 passes one. |
+| Product card hover | The card is a fixed 224×470 box with `overflow: hidden`. On hover the strip and info move up 116px (the button panel's height) and the "Add to cart" / "View offers" panel moves in from below, both with a 200ms `translate`, so nothing around the card shifts. The buttons are siblings of the card's link, not inside it, because a button or link inside a link is invalid HTML. The panel is `display: none` unless the device can hover (`can-hover` variant in `globals.css`), so on touch screens it can't be tapped and a tap opens the product page. Keyboard users get the same slide when focus enters the card. "Add to cart" takes an `onAddToCart` prop; home and store pass the "add cheapest offer" action (see "Card Add to cart" below). |
 | Scroll arrows | One `ScrollRow` with two looks. Categories: thin white chevrons at the row's edges, always shown while the row overflows, dimmed and disabled at either end, and a fade on the right while there is more to scroll. Rails: white squares at 30% opacity over the cards, shown only while the mouse is on the rail's section (`group/rail`), and hidden at either end. Both scroll one visible width per click and exist only on devices that can hover; touch users swipe. With 8 categories the row fits from about 1030px up, so its arrows only show below that. |
 | Homepage bands | Every block after the hero sits in a full-width band, alternating `brand-mid` (#5825cc) and `brand-darkest` (#1f0a4d); the content stays in the 1200px container. A `category_row` has no heading and leads into the block after it, so the two share one band (the row keeps only its top padding). The color comes from the block's place in the API layout, counting only blocks the client can draw and skipping the hero (which has its own colors), so adding, removing or reordering blocks in the db keeps the pattern. The 40px section spacing is padding inside each band, so the bands touch. Each band sets `--band` to its color, which the category row's edge fade uses. |
 | Categories grid | Eneba's "Categories" section at the bottom is a new block type, `category_grid`. It reuses the `Categories` service (same tiles, counts and store links as `category_row`), so the server change is one registry line plus a seeded block of the 11 genres. The client draws 7 tiles (one desktop row); "Load more" draws 7 more from data it already has, with no extra request. Tiles are white at 10% so they show on either band color. |
 | Product covers | Plain `<img>` of the API's `cover.svg`, not `next/image`, which refuses SVG unless `dangerouslyAllowSVG` is on. |
 | Footer spacing | The footer has no top margin. Each page ends with its own 40px of space (the home page through its last band's padding), so a colored band runs right up to the footer. A margin there showed as a 40px strip of page background under the last band. Pages built later need their own bottom padding. |
+| Guest cart storage | Zustand `persist` under `localStorage["eugene.guest-cart"]`, holding only `{offerId, quantity}` lines. Names, prices and stock come from `POST /api/cart/quote` on every change (the items are the query key), so a guest never sees a stale price. The same limits as the server (20 lines, 1–10 each) are kept on add, so the cart can always be quoted and, in phase 14, merged. `skipHydration` stops the store reading localStorage during the first render, which would differ from the server HTML; `useGuestCartSync` (mounted once by the header's cart popover) reads it after mount, and again on the `storage` event, so a second tab doesn't overwrite the first tab's additions with its old list. The header badge counts the local lines, so it changes at once without a request. |
+| Card "Add to cart" | A card knows the product, not its offers, and cart lines are offers. The click loads `GET /api/products/{slug}` (fresh, `staleTime: 0`) and adds the first in-stock offer, which is the cheapest because the API sorts that way, so the price added is the card's "From" price. No in-stock offer left → the modal says "Sold out". No new endpoint needed. The modal opens at once with a spinner ("Adding to cart…") while that request runs, then the same dialog swaps to the result, so the box doesn't close and reopen or change size. If the user closes it during the wait, the add still happens but the modal doesn't pop back up. The product page's "+cart" knows its offer, so it adds at once with no loader. |
+| Adding the same offer again | Raises its quantity by one (up to 10), like Eneba. A 21st line is refused and the modal says the cart is full. |
+| Quantity buttons | +/− step from the saved quantity, not from the quote on screen, so quick clicks while a new quote loads all count. The old quote stays on screen, dimmed, until the new one arrives. |
+| Product page "Buy now" | Adds one and opens `/cart`. Eneba goes to checkout, but ours needs sign-in (phase 14); the cart page's "Checkout now" leads on. The "+cart" button next to it adds and shows the "Added to cart" modal. |
+| Product page layout | Wider than the rest of the site, as on Eneba: `max-w-wide` (1600px, a `--container-wide` token next to `--container-page` 1200px). From 930px up: main column + 350px sidebar with a 30px gap. The sidebar cell spans both grid rows, so its `sticky` price box follows the whole main column. Below 930px it's one column, and grid order puts the price box between the hero and the offers. The price box shows the product's "From" price (old price, discount, cashback), rebuilt from live stock by the API, and a yellow "See offers" that scrolls to the list, where buying happens. "Recommended offers" holds the cheapest offer, "N other offers" the rest. Left out from Eneba: PayPal, Trustpilot, ScamAdviser, PC Mag and payment logos (real brands), wishlist heart and count, "people watching", region dropdown, "USD per €1" rates, trailer and reviews. The small "i" icons next to prices are left out too. Eneba's "Instant refunds" fact becomes "Key on your order page", since we don't refund. Per-offer discount uses the server's rule (`discountPct` in `format.ts`: whole percent, rounded down). Seller logos are a letter tile. |
+| Offer row hover | With a mouse, the "+cart" button is 0 wide until the row is hovered (or focused by keyboard), then opens from its right edge so it seems to slide out from behind "Buy now", and "Buy now" turns solid yellow with dark text. Touch screens can't hover, so they always show both. "Buy now" has its own classes, not the shared outline style: that style's own `hover:` background beat the row's yellow while the pointer was on the button, leaving dark text on a dark box. |
+| Gift card value tiles | Each value of a gift card is its own product, so the tiles are links. They come from `GET /api/products?type=gift_card&platform=…&region=…&inStock=false` (sold-out values keep their tile), sorted by MSRP, which for a gift card is its face value. Hidden for non-gift-cards, while loading, on error, and when the family has one value. The seed was widened to 14 cards in 4 families (Steam, PSN and Xbox Europe, Nintendo Europe), with PSN UK left as a single card to show the hidden case. The games come first in the seed's random order, so their data didn't change; the software's prices and stock did. |
+| Gamers also viewed | No view history, so it shows other products with the same type and platform, best sellers first, through `/api/products`. It asks for `limit + 1` and drops the current product. "Load more" raises the limit by 5 (the old cards stay while the bigger list loads); it stops at 55 because `pageSize` caps at 60. "Is there more?" takes the current product off `total` when it's in stock, since the list is in-stock only. Hidden when empty or on error. |
+| Added-to-cart modal | One `AddedToCartModal`, rendered by the cart popover, opened through a small Zustand store, so product cards on any page and the product page share it. Built on the native `<dialog>` (`components/ui/modal.tsx`): `showModal()` gives the dimmed page, focus kept inside, and Escape for free. |
+| Cart popover | Opens on click (like Eneba), closes on the X, Escape, a click outside, or any link inside it. It has no `relative` parent of its own: it's placed against the header row (`right-4`, max width = screen − 32px), so on a phone it stays on screen instead of hanging off the icon. |
+| Cart page | Uses the checkout layout (see "Checkout layout"). Its body has no Eneba screenshot, so it reuses the popover's line and totals pieces: lines on the left, totals box on the right (stacked below 930px). A line with a `problem` shows why, and "Checkout now" is replaced by a note until it's fixed (API.md, Cart). A `422` from the quote means the saved cart itself is broken, so the error offers "Empty cart" instead of Retry. |
+| Checkout layout | `/cart`, `/checkout` and `/orders/{id}` sit in the `(checkout)` group, as on Eneba: logo, a 3-step bar and "English EU \| EUR", no search or nav bar, and a footer with only the demo line, so nothing pulls the buyer away mid-purchase. The order history list (`/orders`) stays in `(shop)`. The step comes from the URL (`usePathname` in `checkout-steps.tsx`: `/checkout` 2, `/orders/…` 3, else 1), so pages pass nothing. Done steps: mint circle with a check; current: mint circle and mint label; later: purple circle, dimmed. Below 600px the labels and the language text hide, leaving circles and lines. This layout has no header cart popover, so the cart page calls `useGuestCartSync` itself to load the saved guest cart. |
 | Footer | Eneba's footer opens with a light strip of payment logos. Brand logos are off limits, so the strip lists "Secure checkout / Keys delivered at once / Simulated payments only" with lucide icons, then a dark section with the demo disclaimer. |
 
 ## 12. Future improvements

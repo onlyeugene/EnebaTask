@@ -72,7 +72,7 @@ Items marked (check) are inferred from screenshots, not confirmed in DevTools.
 - Separate hover styles for (hover: hover) vs touch devices
 
 ## Shape and spacing
-- Max content width: 1200px (centered)
+- Max content width: 1200px (centered); product page 1600px, with a 350px sidebar and 30px gap
 - Section spacing: 40px below each section
 - Border radius: 0 everywhere observed (cards, search bar, See all button). Square corners are part of the look.
 

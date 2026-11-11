@@ -69,7 +69,10 @@
   /* Square corners everywhere; rounded-* utilities have no values */
   --radius-*: initial;
 
+  /* Content widths: `max-w-page` for most pages (header, home, store),
+     `max-w-wide` for the product page, which Eneba draws wider. */
   --container-page: 1200px;
+  --container-wide: 1600px;
 }
 
 /*

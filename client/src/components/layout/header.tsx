@@ -1,23 +1,19 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Heart, KeyRound, ShoppingCart, User } from "lucide-react";
+import { Heart, User } from "lucide-react";
+import { Logo } from "./logo";
 
-// Server component. `search` is the SearchBox from features/search, passed in
-// by the (shop) layout: layout components never import features.
-// The cart icon gets its count badge (CartButton) in phase 13, and
-// "Log in | Register" becomes the AccountMenu in phase 14.
-export function Header({ search }: { search: ReactNode }) {
+type Props = { search: ReactNode; cart: ReactNode };
+
+// Server component. `search` (SearchBox) and `cart` (CartPopover) come from
+// features and are passed in by the (shop) layout: layout components never
+// import features. "Log in | Register" becomes the AccountMenu in phase 14.
+export function Header({ search, cart }: Props) {
   return (
     <header className="bg-brand">
-      <div className="mx-auto flex max-w-page flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 md:flex-nowrap md:py-5">
-        <Link
-          href="/"
-          className="flex shrink-0 items-center gap-2"
-          aria-label="Eugene home"
-        >
-          <KeyRound className="size-8 text-yellow" strokeWidth={2.5} />
-          <span className="text-3xl font-extrabold tracking-tight">eugene</span>
-        </Link>
+      {/* `relative`: the cart popover is placed against this row. */}
+      <div className="relative mx-auto flex max-w-page flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 md:flex-nowrap md:py-5">
+        <Logo />
 
         <div className="order-last w-full md:order-none md:max-w-[550px] md:flex-1">{search}</div>
 
@@ -37,9 +33,7 @@ export function Header({ search }: { search: ReactNode }) {
             <Heart className="size-7" strokeWidth={1.75} />
           </Link>
 
-          <Link href="/cart" aria-label="Cart" className="link-hover p-2.5">
-            <ShoppingCart className="size-7" strokeWidth={1.75} />
-          </Link>
+          {cart}
           <div className="flex items-center text-base">
             <User className="mx-1 size-7" strokeWidth={1.75} aria-hidden />
             <Link href="/login" className="link-hover p-2.5">

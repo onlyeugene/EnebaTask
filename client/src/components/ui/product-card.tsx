@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Gamepad, Gamepad2, Info, Joystick, Monitor, Puzzle, type LucideIcon } from "lucide-react";
-import type { Platform, ProductCard as Card } from "@/types/api";
+import { Info } from "lucide-react";
+import type { ProductCard as Card } from "@/types/api";
 import { API_URL } from "@/lib/api-url";
 import {
   cashbackCents,
@@ -11,16 +11,8 @@ import {
 } from "@/lib/format";
 import { CashbackBadge, GiftCardTag } from "./badge";
 import { buttonStyles } from "./button";
+import { PlatformIcon } from "./platform-icon";
 import { Price } from "./price";
-
-// Generic icons, not brand logos (see notes.md, Branding).
-const PLATFORM_ICONS: Record<Platform, LucideIcon> = {
-  steam: Gamepad2,
-  psn: Gamepad,
-  xbox: Joystick,
-  nintendo: Puzzle,
-  windows: Monitor,
-};
 
 // Hover: the strip and info slide up by the height of the button panel
 // (2 buttons of 44px + 8px gap + 20px bottom padding = 116px) while the
@@ -32,12 +24,11 @@ const UP = "group-hover:-translate-y-[116px] can-hover:group-focus-within:-trans
 
 type Props = {
   product: Card;
-  // Wired up in phase 13 (cart). Until then the button does nothing.
+  // The page decides what "add" means (home and store add the cheapest offer).
   onAddToCart?: (product: Card) => void;
 };
 
 export function ProductCard({ product, onAddToCart }: Props) {
-  const PlatformIcon = PLATFORM_ICONS[product.platform];
   const price = product.minPriceCents;
   const href = `/product/${product.slug}`;
 
@@ -72,7 +63,7 @@ export function ProductCard({ product, onAddToCart }: Props) {
           <div className="flex h-[30px] items-center justify-between gap-2 border-b border-divider pr-3">
             {product.cashbackPct > 0 ? <CashbackBadge /> : <span />}
             <span className="flex items-center gap-1.5 text-xs font-semibold">
-              <PlatformIcon className="size-3.5" aria-hidden />
+              <PlatformIcon platform={product.platform} className="size-3.5" />
               {platformLabel(product.platform)}
             </span>
           </div>
