@@ -1,7 +1,9 @@
 "use client";
 
 import type { ComponentType } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { buttonStyles } from "@/components/ui/button";
 import type { BlockType, LayoutEntry } from "@/types/api";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ErrorState } from "@/components/ui/error-state";
@@ -61,6 +63,17 @@ export function HomeBlocks() {
   // A type this client doesn't know yet (newer API) is skipped, not a crash,
   // and is left out before counting bands so the colors still alternate.
   const blocks = layout.data.blocks.filter((entry) => COMPONENTS[entry.type]);
+  // Every block switched off in the db: say so instead of an empty page.
+  if (blocks.length === 0) {
+    return (
+      <div className="mx-auto max-w-page px-4 py-10">
+        <p className="text-base text-text-secondary">Nothing to show here right now.</p>
+        <Link href="/store" className={`${buttonStyles.primary} mt-6`}>
+          Browse the store
+        </Link>
+      </div>
+    );
+  }
   // The hero runs edge to edge in its own colors, so bands count the other
   // blocks only, in layout order. Adding, removing or reordering blocks in
   // the db keeps the colors alternating.
@@ -94,7 +107,7 @@ export function HomeBlocks() {
 export function HomeSkeleton() {
   return (
     <div aria-busy>
-      <Skeleton className="h-115 bg-brand-da md:h-90" />
+      <Skeleton className="h-115 bg-brand-dark md:h-90" />
       <div className={`${BANDS[0]} ${BAND}`}>
         <div className="mx-auto max-w-page px-4">
           <Skeleton className="mb-6 h-9.5 w-75 max-w-full bg-brand-light/40" />

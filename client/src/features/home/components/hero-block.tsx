@@ -59,14 +59,17 @@ function MainBanner({ banner }: { banner: Banner }) {
   );
 }
 
+// Below sm each tile is a third of the screen (about 107px on a 320px phone),
+// so the title is 15px there: one long word like "RELEASES" at 22px was wider
+// than the tile and pushed the whole page sideways.
 function Tile({ banner }: { banner: Banner }) {
   return (
     <Link
       href={banner.href}
-      className={`flex h-[200px] flex-col justify-between p-4 transition-[filter] hover:brightness-110 md:h-[360px] md:p-5 ${THEMES[banner.theme]}`}
+      className={`flex h-[200px] min-w-0 flex-col justify-between p-3 transition-[filter] hover:brightness-110 sm:p-4 md:h-[360px] md:p-5 ${THEMES[banner.theme]}`}
     >
       <div>
-        <h2 className="text-xl font-extrabold uppercase md:text-3xl">{banner.title}</h2>
+        <h2 className="text-md font-extrabold uppercase sm:text-xl md:text-3xl">{banner.title}</h2>
         <p className="mt-2 text-xs font-semibold opacity-90 md:text-sm">{banner.subtitle}</p>
       </div>
       <span className="flex items-center gap-1 text-sm font-bold">
