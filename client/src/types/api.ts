@@ -60,9 +60,12 @@ export type Filters = {
 export type Suggestion = {
   slug: string;
   name: string;
+  type: ProductType;
   platform: Platform;
   region: Region;
+  originalPriceCents: number;
   minPriceCents: number | null;
+  discountPct: number;
   coverUrl: string;
 };
 

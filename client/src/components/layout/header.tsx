@@ -1,11 +1,12 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { Heart, KeyRound, Search, ShoppingCart, User } from "lucide-react";
+import { Heart, KeyRound, ShoppingCart, User } from "lucide-react";
 
-// Server component. The search box is a plain GET form for now, so Enter opens
-// /store?q=... even without JS; phase 12 swaps in the autocomplete SearchBox.
+// Server component. `search` is the SearchBox from features/search, passed in
+// by the (shop) layout: layout components never import features.
 // The cart icon gets its count badge (CartButton) in phase 13, and
 // "Log in | Register" becomes the AccountMenu in phase 14.
-export function Header() {
+export function Header({ search }: { search: ReactNode }) {
   return (
     <header className="bg-brand">
       <div className="mx-auto flex max-w-page flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 md:flex-nowrap md:py-5">
@@ -18,21 +19,7 @@ export function Header() {
           <span className="text-3xl font-extrabold tracking-tight">eugene</span>
         </Link>
 
-        <form
-          action="/store"
-          role="search"
-          className="order-last flex h-12 w-full items-center gap-3 border border-white px-2.5 md:order-none md:h-[57px] md:max-w-[550px] md:flex-1"
-        >
-          <Search className="size-6 shrink-0 text-text-soft" aria-hidden />
-          <input
-            name="q"
-            type="search"
-            maxLength={100}
-            placeholder="Search for games, gift cards and more"
-            aria-label="Search products"
-            className="h-full w-full bg-transparent text-base font-semibold text-white outline-none placeholder:text-text-muted"
-          />
-        </form>
+        <div className="order-last w-full md:order-none md:max-w-[550px] md:flex-1">{search}</div>
 
         {/* Static for now (EUR and English only), but hovers like Eneba's picker.
             The text turns yellow; on Eneba only the nav bar gets a box. */}

@@ -1,9 +1,9 @@
 import { TriangleAlert } from "lucide-react";
 import { Button } from "./button";
 
-type Props = { message: string; onRetry?: () => void; className?: string };
+type Props = { message: string; onRetry?: () => void; retryLabel?: string; className?: string };
 
-export function ErrorState({ message, onRetry, className = "" }: Props) {
+export function ErrorState({ message, onRetry, retryLabel = "Retry", className = "" }: Props) {
   return (
     <div
       role="alert"
@@ -13,7 +13,7 @@ export function ErrorState({ message, onRetry, className = "" }: Props) {
       <p className="text-base font-semibold text-text-secondary">{message}</p>
       {onRetry && (
         <Button variant="outline" onClick={onRetry}>
-          Retry
+          {retryLabel}
         </Button>
       )}
     </div>

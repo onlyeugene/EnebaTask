@@ -197,7 +197,10 @@ func (r *MongoRepo) Autocomplete(ctx context.Context, text string, limit int) ([
 			},
 		}}},
 		{{Key: "$limit", Value: limit}},
-		{{Key: "$project", Value: bson.M{"slug": 1, "name": 1, "platform": 1, "region": 1, "minPriceCents": 1}}},
+		{{Key: "$project", Value: bson.M{
+			"slug": 1, "name": 1, "type": 1, "platform": 1, "region": 1,
+			"originalPriceCents": 1, "minPriceCents": 1, "discountPct": 1,
+		}}},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("autocomplete: %w", err)
