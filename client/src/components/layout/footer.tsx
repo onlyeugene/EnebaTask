@@ -17,9 +17,12 @@ const LINKS = [
 
 export function Footer() {
   return (
-    <footer className="mt-10">
+    // No top margin: each page ends with its own 40px spacing (on the home
+    // page that's the last band's padding), so a colored band can run right
+    // up to the footer without a strip of page background in between.
+    <footer>
       <div className="bg-surface-light text-ink">
-        <ul className="mx-auto flex max-w-page flex-wrap justify-center gap-x-10 gap-y-3 px-4 py-5 text-sm font-bold">
+        <ul className="mx-auto flex max-w-page flex-wrap justify-start gap-x-10 gap-y-3 px-4 py-5 text-sm font-bold">
           {PERKS.map(({ icon: Icon, label }) => (
             <li key={label} className="flex items-center gap-2">
               <Icon className="size-5" aria-hidden />
@@ -36,7 +39,7 @@ export function Footer() {
               <KeyRound className="size-6 text-yellow" strokeWidth={2.5} aria-hidden />
               <span className="text-xl font-extrabold">eugene</span>
             </Link>
-            <p className="max-w-md text-sm text-text-muted">
+            <p className="max-w-md text-sm text-text-muted link-hover ">
               Demo project, not affiliated with Eneba. No real money is involved: products, sellers,
               covers and keys are all made up.
             </p>
@@ -45,7 +48,7 @@ export function Footer() {
           <ul className="flex gap-6 text-sm font-semibold">
             {LINKS.map((l) => (
               <li key={l.href}>
-                <Link href={l.href} className="text-text-secondary hover:text-white">
+                <Link href={l.href} className="text-text-secondary link-hover ">
                   {l.label}
                 </Link>
               </li>

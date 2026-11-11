@@ -10,6 +10,7 @@
 
   /* Purples */
   --color-brand: #4618ac; /* page background */
+  --color-brand-mid: #5825cc; /* lighter homepage bands, alternating with brand */
   --color-brand-dark: #351183; /* nav bar, darker sections */
   --color-brand-darkest: #1f0a4d; /* card info area, deep surfaces */
   --color-brand-border: #3c1395;
@@ -70,6 +71,13 @@
 
   --container-page: 1200px;
 }
+
+/*
+  Devices with a real pointer (mouse, trackpad). Tailwind's hover: is already
+  limited to these; this variant is for things that must not exist at all on
+  touch screens, like the product card's hover buttons.
+*/
+@custom-variant can-hover (@media (hover: hover));
 
 /*
   Eneba's link hovers. Both only apply on devices that can really hover, so a

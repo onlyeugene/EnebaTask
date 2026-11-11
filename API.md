@@ -168,9 +168,10 @@ The header search box calls `/api/search/autocomplete` as you type (debounced 20
 // type: "hero"
 { main: Banner; tiles: Banner[] }      // Banner = { title, subtitle, ctaLabel, href, theme: "purple"|"yellow"|"mint"|"pink" }
 
-// type: "category_row"
+// types: "category_row" | "category_grid"
 { categories: { slug: string; label: string; icon: string; href: string; count: number }[] }
 // icon = lucide name; href = store link, e.g. "/store?platform=steam"; count = in-stock products behind that link
+// Same data for both; the row is drawn as a scrolling row of icons, the grid as tiles with "Load more".
 
 // types: "bestsellers" | "deals" | "new_releases" | "gift_cards"
 { products: ProductCard[]; seeAllHref: string }   // e.g. "/store?sort=discount"
