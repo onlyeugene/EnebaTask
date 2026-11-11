@@ -18,17 +18,16 @@ Demo project for the Eneba intern assignment. Not affiliated with Eneba. No real
 
 ## Demo walkthrough
 
-<!-- TODO(owner): write a short walkthrough here. Points to cover:
-- Purchase: home → product → add to cart → sign up → checkout → pay → key.
-- Test cards: any valid-looking number pays (e.g. 4242 4242 4242 4242, any future MM/YY, any 3-digit CVC).
-  4000 0000 0000 0002 is declined; the keys go back to stock and the cart stays.
-- Search: type "thundr" or "skyforje" in the header (typos), or "frost" (part of a word).
-- One failing homepage block (local only, APP_ENV=development): get a block id from
-  GET http://localhost:8080/api/homepage, then open http://localhost:3000/?fail=<blockId>.
-  That block shows an error with Retry; the rest of the page loads.
--->
+1. **Buy a key.** Open a product from the home page, add an offer to the cart, sign up, check out and pay. The order page shows the key with a Copy button.
+2. **Test cards.** Use any future expiry (`MM/YY`), any 3-digit CVC and any name.
 
-_Coming soon._
+   | Card number | Result |
+   |---|---|
+   | `4242 4242 4242 4242` | Paid. Any other valid-looking number pays too. |
+   | `4000 0000 0000 0002` | Declined. The keys go back to stock and the cart stays as it was. |
+
+3. **Search.** Type `thundr` or `skyforje` in the header (typos), or `frost` (part of a word).
+4. **One failing homepage block** (local only, with `APP_ENV=development`; the live API ignores it). Get a block id from `GET http://localhost:8080/api/homepage`, then open `http://localhost:3000/?fail=<blockId>`. That block shows an error with a Retry button; the rest of the page loads.
 
 ## Assignment checklist
 
@@ -88,7 +87,6 @@ Every line of [ASSIGNMENT.md](ASSIGNMENT.md), and where it's covered.
 |---|---|---|
 | GitHub link | ✅ | https://github.com/onlyeugene/EnebaTask |
 | Public URL on a free tier | ✅ | Vercel (app) + Render (API) + Atlas M0, all free |
-| Full agent chat history | ✅ | [chat-logs/](chat-logs/) |
 
 ## Run it locally
 
@@ -239,16 +237,17 @@ The full list with fixes is in [PLAN.md section 12](PLAN.md#12-future-improvemen
 7. Emailed keys and receipts.
 8. A plain-text search fallback when Atlas Search fails.
 9. Rate limit counts in a shared store, plus a per-email limit on failed logins.
-10. A "Cheap games" promo page built on the same block system (planned as phase 15b, parked).
+10. A "Cheap games" promo page built on the same block system, by adding a `page` field to `homepage_blocks`.
 
 ## How I used AI
 
-I built this with **Claude Code in VS Code** (Claude Sonnet 4.6), phase by phase. The logs show I switched to Opus partway through phase 1 (`/model opus`). I used a **separate Claude chat** for planning, stack choices and learning Go: [planning chat](TODO-add-link).
+I built this with **Claude Code in VS Code**, phase by phase, using **Claude Opus 5.5** for most phases. I switched between Sonnet 4.6 and Opus for planning and coding; the logs show each switch (`/model`).
 
 **How the work went.** I wrote the brief and planned with the agent before any code ([PLAN.md](PLAN.md), [API.md](API.md)). Then I ran one phase per session. Each session started the same way: read [CLAUDE.md](CLAUDE.md), PLAN.md and API.md, build only that phase, run a real check (tests, curl, or headless Chrome), and stop. Between phases I asked the agent to walk me through what it built (how a request flows, what happens under a race, what breaks first), so I could explain every part. CLAUDE.md holds the rules it had to follow: the folder layout, money in cents, no git commands, no secrets in chat.
 
 **Where I pushed back or changed course:**
 
+- **Holds that free themselves.** The plan had a background job release abandoned key reservations. Render's free tier sleeps, so that job wouldn't run reliably. I had it replaced with `reservedUntil` on each key: the claim query itself counts an expired hold as claimable, and the job became cleanup only. ([planning log](chat-logs/01-planning-claude-code.md))
 - **The IP behind the rate limit.** I asked for the riskiest part of phase 1. The answer was chi's `RealIP` middleware, which trusts headers the client sets, so a fake header per request would dodge the login rate limit. I had it removed and replaced with our own middleware that uses only the last `X-Forwarded-For` entry, plus a test that sends fake headers. ([phase 1 log](chat-logs/02-phase1-server-skeleton-claude-code.md))
 - **Don't overengineer.** After phase 1 I added a rule to CLAUDE.md: build the simplest version that meets the assignment, test only auth, key claiming and checkout, and ask me before adding anything extra. ([phase 1 log](chat-logs/02-phase1-server-skeleton-claude-code.md))
 - **Rate limit on `/me`.** The agent put `/me` behind the login limit of 10 per minute. The client calls `/me` on every protected page, so normal use would have hit 429. I moved it out and asked for a separate, higher limit for refresh. ([phase 5 log](chat-logs/06-phase5-auth-claude-code.md))
@@ -279,5 +278,6 @@ I built this with **Claude Code in VS Code** (Claude Sonnet 4.6), phase by phase
 | [15-phase14](chat-logs/15-phase14-auth-ui-claude-code.md) | Login, register, cart merge |
 | [16-phase15](chat-logs/16-phase15-checkout-claude-code.md) | Checkout, payment, orders |
 | [17-phase16](chat-logs/17-phase16-deploy-claude-code.md) | Deploy |
-| 18-phase17 _(TODO: export this session)_ | Polish, README, assignment check |
-| 19-phase18 _(TODO: export this session)_ | Wishlist and categories drawer |
+| [18-phase17](chat-logs/18-phase17-polish-readme-claude-code.md) | Polish, README, assignment check |
+| [19-phase18](chat-logs/19-phase18-wishlist-categories-claude-code.md) | Wishlist and categories drawer |
+| [20-fixes](chat-logs/20-fixes-claude-code.md) | Fixes and questions after the main build |
