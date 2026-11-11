@@ -32,7 +32,7 @@ const COMPONENTS: Record<BlockType, ComponentType<BlockProps>> = {
 // notes.md, kept inside the band so the colors touch.
 const BANDS = [
   "bg-brand-mid [--band:var(--color-brand-mid)]",
-  "bg-[#3c1395] [--band:var(--color-brand-darkest)]",
+  "bg-[#3c1395] [--band:#3c1395]",
 ];
 const BAND = "py-10";
 

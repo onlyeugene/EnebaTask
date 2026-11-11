@@ -125,7 +125,7 @@ Rules:
 | GET | `/api/products/filters` | — | `200 { types, platforms, regions, genres: {value,label,count}[], price: {minCents, maxCents} }` |
 | GET | `/api/products/{slug}` | — | `200 { product: ProductDetail, offers: Offer[] }` (offers sorted by price, in-stock first) |
 | GET | `/api/products/{slug}/cover.svg` | — | `200 image/svg+xml`, `Cache-Control: public, max-age=86400` |
-| GET | `/api/search/autocomplete?q=` | — | `200 { suggestions: { slug, name, platform, region, minPriceCents, coverUrl }[] }` (max 8) |
+| GET | `/api/search/autocomplete?q=` | — | `200 { suggestions: { slug, name, type, platform, region, originalPriceCents, minPriceCents, discountPct, coverUrl }[] }` (max 8) |
 
 `GET /api/products` query params (all optional, combine freely):
 
@@ -153,7 +153,7 @@ Search with `q`: each word matches whole (with typos: none for words of 1–3 le
 
 `/api/search/autocomplete`: active products only, sold out included (`minPriceCents: null`). Every word must match the start of a word in the name (`neon dr` → Neon Drift); words of 5+ letters allow 1 typo (`thundr` → Thunderpeak). `q` under 2 chars → `{ "suggestions": [] }`; over 100 chars → `400`.
 
-The header search box calls `/api/search/autocomplete` as you type (debounced 200 ms, min 2 chars). Pressing Enter opens `/store?q=...`, which calls `/api/products?q=...`.
+The header search box calls `/api/search/autocomplete` as you type (debounced 250 ms, min 2 chars). Pressing Enter opens `/store?q=...`, which calls `/api/products?q=...`.
 
 ## Homepage
 

@@ -41,8 +41,9 @@ func (s *Service) Autocomplete(ctx context.Context, text string) ([]Suggestion, 
 	for _, p := range found {
 		card := products.ToCard(p) // reuse ToCard so coverUrl is built in one place
 		out = append(out, Suggestion{
-			Slug: card.Slug, Name: card.Name, Platform: card.Platform, Region: card.Region,
-			MinPriceCents: card.MinPriceCents, CoverURL: card.CoverURL,
+			Slug: card.Slug, Name: card.Name, Type: card.Type, Platform: card.Platform, Region: card.Region,
+			OriginalPriceCents: card.OriginalPriceCents, MinPriceCents: card.MinPriceCents,
+			DiscountPct: card.DiscountPct, CoverURL: card.CoverURL,
 		})
 	}
 	return out, nil
